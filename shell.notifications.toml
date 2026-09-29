@@ -1,0 +1,9 @@
+[notifications]
+# Incoming transmission: black panel, orange frame, amber countdown bar.
+background       = "#050403"
+background-alpha = 0.97
+text             = "#ffbf73"
+border           = "#ff7a00"
+border-alpha     = 1.0
+border-width     = 2
+countdown        = "#ffb000"

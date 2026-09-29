@@ -1,0 +1,13 @@
+[lock]
+# Authorisation prompt: orange frame idle, amber while typing, red on reject.
+background       = "#050403"
+background-alpha = 0.90
+text             = "#ffe9c8"
+placeholder      = "#9c6a2e"
+text-error       = "#ff1a1a"
+border           = "#ff7a00"
+border-active    = "#ffb000"
+border-error     = "#ff1a1a"
+border-alpha     = 1.0
+selection        = "#ff7a00"
+selection-alpha  = 0.45

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "zalo.nerv-magi-desk",
+  "name": "NERV MAGI Desk",
+  "version": "1.0.0",
+  "author": "zalo",
+  "description": "Always-on MAGI deliberation screen on the NERV desktop wall: MELCHIOR·1 (CPU, per-thread hex cells), BALTHASAR·2 (memory), CASPER·3 (GPU, never wakes a sleeping dGPU), votes, tally and hex system log. Desktop layer, click-through.",
+  "kinds": ["panel"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "panel": "MagiDesk.qml"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "zalo.nerv-psychograph",
+  "name": "NERV Psychograph",
+  "version": "1.0.0",
+  "author": "zalo",
+  "description": "NERV desktop wall tile (rect from ~/.config/omarchy/nerv-wall.json, desktop layer): PSYCHOGRAPH system scope (CPU, cores, memory, network, disk) and HARMONICS spectrum analyser of the system audio output.",
+  "kinds": ["panel"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "panel": "Panel.qml"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "zalo.nerv-target",
+  "name": "NERV Positron Rifle",
+  "version": "1.0.0",
+  "author": "zalo",
+  "description": "NERV desktop wall panel: POSITRON RIFLE / 目標捕捉, a targeting scope locked on the focused (or last focused) window, with PID/CPU/RSS readouts, time-on-target and a charge meter.",
+  "kinds": ["panel"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "panel": "Target.qml"
+  }
+}

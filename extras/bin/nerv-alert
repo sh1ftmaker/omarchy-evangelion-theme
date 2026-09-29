@@ -1,0 +1,57 @@
+#!/bin/bash
+# nerv-alert: summon the NERV alarm overlay (omarchy plugin zalo.nerv-alert).
+#
+#   nerv-alert                                   # EMERGENCY / 緊急事態
+#   nerv-alert pattern-blue "Angel approaching Tokyo-3"
+#   nerv-alert activity-limit "Battery at 9%" 9  # third arg = 7-seg value
+#   nerv-alert sync "" 400
+#   nerv-alert --json '{"variant":"pattern-blue","title":"PATTERN BLUE","jp":"使徒","message":"..."}'
+#   nerv-alert --if-theme pattern-blue ...       # only fire when the evangelion theme is active
+#                                                (NERV_ALERT_FORCE=1 bypasses the check)
+#
+# Variants: emergency | pattern-blue | activity-limit | sync
+set -euo pipefail
+
+PLUGIN=zalo.nerv-alert
+
+usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; }
+
+theme_is_eva() {
+  local name=""
+  [[ -r $HOME/.local/state/omarchy/current/theme.name ]] && name=$(<"$HOME/.local/state/omarchy/current/theme.name")
+  [[ -z $name ]] && name=$(omarchy theme current 2>/dev/null || true)
+  [[ ${name,,} == evangelion ]]
+}
+
+if_theme=0
+json=""
+while (($#)); do
+  case $1 in
+    -h|--help) usage; exit 0 ;;
+    --if-theme) if_theme=1; shift ;;
+    --json) json=${2:?--json needs an argument}; shift 2 ;;
+    *) break ;;
+  esac
+done
+
+if ((if_theme)) && [[ ${NERV_ALERT_FORCE:-} != 1 ]] && ! theme_is_eva; then
+  exit 0
+fi
+
+if [[ -z $json ]]; then
+  variant=${1:-emergency}
+  message=${2:-}
+  value=${3:-}
+  json=$(VARIANT="$variant" MESSAGE="$message" VALUE="$value" python3 -c '
+import json, os
+p = {"variant": os.environ["VARIANT"]}
+if os.environ["MESSAGE"]: p["message"] = os.environ["MESSAGE"]
+if os.environ["VALUE"]: p["value"] = os.environ["VALUE"]
+print(json.dumps(p, ensure_ascii=False))')
+fi
+
+out=$(omarchy-shell shell summon "$PLUGIN" "$json" 2>&1 || true)
+if [[ $out != *ok* ]]; then
+  echo "nerv-alert: summon failed ($out). Is the plugin enabled? Try: omarchy plugin enable $PLUGIN" >&2
+  exit 1
+fi

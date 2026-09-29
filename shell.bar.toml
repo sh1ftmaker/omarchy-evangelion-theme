@@ -1,0 +1,9 @@
+[bar]
+# NERV status strip: solid terminal black, command-orange data, red alarms.
+background       = "#050403"
+background-alpha = 1.0
+text             = "#ff7a00"
+active           = "#ff1a1a"
+scale-with-font  = true
+size-horizontal  = 26
+size-vertical    = 28

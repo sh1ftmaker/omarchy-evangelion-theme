@@ -1,0 +1,40 @@
+#!/bin/bash
+# theme-set hook: bring the NERV widgets online for the evangelion theme and
+# stand them down (restoring stock widgets) for every other theme. $1 = theme slug.
+in_layout() { python3 - "$1" <<'PY'
+import json, sys, os
+d = json.load(open(os.path.expanduser('~/.config/omarchy/shell.json')))
+ids = [w.get('id') for s in d.get('bar', {}).get('layout', {}).values() for w in s]
+sys.exit(0 if sys.argv[1] in ids else 1)
+PY
+}
+enabled_plugin() { python3 - "$1" <<'PY'
+import json, sys, os
+d = json.load(open(os.path.expanduser('~/.config/omarchy/shell.json')))
+sys.exit(0 if any(p.get('id') == sys.argv[1] for p in d.get('plugins', [])) else 1)
+PY
+}
+
+if [[ ${1,,} == evangelion ]]; then
+  in_layout zalo.nerv-workspaces || omarchy plugin enable zalo.nerv-workspaces --after omarchy.menu
+  in_layout omarchy.workspaces && omarchy plugin disable omarchy.workspaces
+  in_layout zalo.nerv-magi || omarchy plugin enable zalo.nerv-magi --after omarchy.tray
+  in_layout zalo.nerv-power || omarchy plugin enable zalo.nerv-power --after zalo.nerv-magi
+  # desktop wall: the six panels are hosted by zalo.nerv-wall (one window per screen), so the
+  # standalone panel plugins must be off or they would draw a second copy.
+  for p in zalo.nerv-psychograph zalo.nerv-tactical zalo.nerv-magi-desk zalo.nerv-power-desk zalo.nerv-seele zalo.nerv-target; do
+    enabled_plugin "$p" && omarchy plugin disable "$p"
+  done
+  for p in zalo.nerv-alert zalo.nerv-wall; do
+    enabled_plugin "$p" || omarchy plugin enable "$p"
+  done
+else
+  for p in zalo.nerv-workspaces zalo.nerv-magi zalo.nerv-power; do
+    in_layout "$p" && omarchy plugin disable "$p"
+  done
+  for p in zalo.nerv-wall zalo.nerv-psychograph zalo.nerv-tactical zalo.nerv-magi-desk zalo.nerv-power-desk zalo.nerv-seele zalo.nerv-target; do
+    enabled_plugin "$p" && omarchy plugin disable "$p"
+  done
+  in_layout omarchy.workspaces || omarchy plugin enable omarchy.workspaces --after omarchy.menu
+fi
+exit 0

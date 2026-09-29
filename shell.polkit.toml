@@ -1,0 +1,12 @@
+[polkit]
+# Authorisation request: 承認 / 否決.
+background       = "#050403"
+background-alpha = 1.0
+text             = "#ffe9c8"
+text-error       = "#ff1a1a"
+border           = "#ff7a00"
+border-error     = "#ff1a1a"
+border-alpha     = 1.0
+scrim            = "#000000"
+scrim-alpha      = 0.65
+accent           = "#ff7a00"

@@ -1,0 +1,29 @@
+<!doctype html><html><head><meta charset="utf-8"><title>episode</title>
+<style>html,body{margin:0;background:#050403;overflow:hidden}canvas{display:block;width:2560px;height:1600px}</style>
+</head><body><canvas id="c"></canvas>
+<script src="kit.js"></script>
+<script>
+// the episode title card: stacked condensed serif, wildly different sizes, hard-justified to one measure
+function draw(c) {
+  const X = 150, MEAS = 980, bone = rgba('bone', 1);
+  const just = (text, size, y, o = {}) => {
+    const sx = (o.meas ?? MEAS) / (condW(c, text, size) * (1 + (o.bold ?? 0.022) * 0.0));
+    condensed(c, text, o.x ?? X, y, size, { sx, color: bone, bold: o.bold ?? 0.022, align: o.align });
+    return sx;
+  };
+  condensed(c, 'EPISODE:01', X + 4, 236, 92, { sx: 0.62, color: bone });
+  just('NEON', 780, 790, { bold: 0.03 });
+  just('OVERDRIVE', 310, 1046, { bold: 0.028 });
+  // japanese subtitle, hard right against the measure
+  c.font = jp(58, 900, true); c.fillStyle = bone; c.textAlign = 'right';
+  c.fillText('ネオン・オーバードライブ', X + MEAS, 1136);
+  c.font = jp(34, 700, true);
+  c.fillText('第壱話', X + MEAS, 236);
+  c.textAlign = 'left';
+  // the faintest terminal trace: a hairline and a caption, bottom right
+  c.fillStyle = rgba('orange', 0.5);
+  c.fillRect(W - 420, H - 86, 364, 1);
+  txt(c, 'NEON OVERDRIVE  //  133.33 BPM', W - 56, H - 62, 11, rgba('orange', 0.55), { w: 600, track: 3, align: 'right' });
+}
+run(draw, { bloom: 0.5, threshold: 0.7, vignette: 0.45, halation: 0.06 });
+</script></body></html>

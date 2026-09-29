@@ -1,0 +1,280 @@
+<!doctype html><html><head><meta charset="utf-8"><title>tokyo3</title>
+<style>html,body{margin:0;background:#050403;overflow:hidden}canvas{display:block;width:2560px;height:1600px}</style>
+</head><body><canvas id="c"></canvas>
+<script src="kit.js"></script>
+<script>
+// ---- camera: slow orbit frozen at yaw 0.52, looking down on the caldera
+const YAW = 0.52, CAMR = 1500, CAMH = 620, FOC = 1650, SCX = 930, SCY = 600;
+const E = [Math.sin(YAW) * CAMR, CAMH, Math.cos(YAW) * CAMR], TG = [-40, 0, -120];
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const norm = (a) => { const l = Math.hypot(...a); return a.map((v) => v / l); };
+const FWD = norm(sub(TG, E)), RIGHT = norm(cross(FWD, [0, 1, 0])), UP = cross(RIGHT, FWD);
+function P(x, y, z) {
+  const v = [x - E[0], y - E[1], z - E[2]];
+  const zc = dot(v, FWD);
+  return [SCX + (FOC * dot(v, RIGHT)) / zc, SCY - (FOC * dot(v, UP)) / zc, zc];
+}
+const depth = (x, y, z) => dot([x - E[0], y - E[1], z - E[2]], FWD);
+function line3(c, pts, close = false) {
+  c.beginPath();
+  pts.forEach((p, i) => { const [X, Y] = P(...p); i ? c.lineTo(X, Y) : c.moveTo(X, Y); });
+  if (close) c.closePath();
+}
+
+// ---- terrain: caldera ring
+const CITY_R = 430;
+function mountH(x, z) {
+  const r = Math.hypot(x, z), th = Math.atan2(z, x);
+  const Hm = 150 + 110 * (0.5 + 0.5 * Math.sin(th * 3 + 1.2)) + 60 * fbm(th * 2.2 + 5, 9);
+  return Hm * smoothstep(560, 1150, r + 70 * noise1(th * 4, 3));
+}
+
+// ---- city
+const SPEC = synthSpectrum(64, 23);
+const SCAN_Z = -40; // scan plane (N–S sweep): world z
+const blds = [];
+(function build() {
+  const step = 58;
+  for (let gx = -8; gx <= 8; gx++) for (let gz = -8; gz <= 8; gz++) {
+    const bx = gx * step, bz = gz * step, r = Math.hypot(bx, bz);
+    if (r > CITY_R) continue;
+    if (Math.hypot(bx + 168, bz - 176) < 140) continue; // lake edge
+    const n = 1 + Math.floor(hash(gx, gz, 1) * 3.2);
+    for (let k = 0; k < n; k++) {
+      const w = 12 + hash(gx, gz, k, 2) * 18, d = 12 + hash(gx, gz, k, 3) * 18;
+      const ox = (hash(gx, gz, k, 4) - 0.5) * (step - 14 - w), oz = (hash(gx, gz, k, 5) - 0.5) * (step - 14 - d);
+      const cx = bx + ox, cz = bz + oz;
+      const rr = Math.hypot(cx, cz);
+      let h = 14 + 70 * Math.pow(hash(gx, gz, k, 6), 2) * (1 - rr / (CITY_R + 80)) + 18 * (1 - rr / CITY_R);
+      // armament towers risen from the geofront: the inner ring, height = a slow spectrum by bearing
+      const tower = rr < 250 && rr > 50 && hash(gx, gz, k, 7) < 0.2;
+      if (tower) {
+        const band = Math.floor(((Math.atan2(cz, cx) + Math.PI) / TAU) * 48);
+        h = 70 + 170 * smoothstep(0.1, 1, SPEC[band]) * (0.6 + 0.4 * hash(k, gx));
+      }
+      blds.push({ x0: cx - w / 2, x1: cx + w / 2, z0: cz - d / 2, z1: cz + d / 2, h, tower, cx, cz });
+    }
+  }
+})();
+
+function drawBox(c, b) {
+  const { x0, x1, z0, z1, h } = b;
+  const near = Math.abs((b.z0 + b.z1) / 2 - SCAN_Z);
+  const lit = Math.exp(-near * near / 900);
+  const V = [[x0, 0, z0], [x1, 0, z0], [x1, 0, z1], [x0, 0, z1], [x0, h, z0], [x1, h, z0], [x1, h, z1], [x0, h, z1]];
+  const faces = [[0, 1, 5, 4, [0, 0, -1]], [1, 2, 6, 5, [1, 0, 0]], [2, 3, 7, 6, [0, 0, 1]], [3, 0, 4, 7, [-1, 0, 0]], [4, 5, 6, 7, [0, 1, 0]]];
+  const ctr = [(x0 + x1) / 2, h / 2, (z0 + z1) / 2];
+  const col = b.tower ? 'amber' : 'orange';
+  for (const f of faces) {
+    const nrm = f[4], fc = [ctr[0] + nrm[0] * (x1 - x0) / 2, ctr[1] + nrm[1] * h / 2, ctr[2] + nrm[2] * (z1 - z0) / 2];
+    if (dot(nrm, sub(E, fc)) <= 0) continue;
+    line3(c, [V[f[0]], V[f[1]], V[f[2]], V[f[3]]], true);
+    const top = nrm[1] > 0;
+    c.fillStyle = top ? 'rgba(24,13,4,1)' : nrm[0] ? 'rgba(10,7,4,1)' : 'rgba(7,5,3,1)';
+    c.fill();
+    c.fillStyle = rgba(col, (top ? 0.05 : 0.02) + 0.18 * lit); c.fill();
+    c.strokeStyle = rgba(lit > 0.3 ? 'amber' : col, clamp(0.5 + 0.5 * lit + (b.tower ? 0.2 : 0))); c.lineWidth = b.tower ? 1.1 : 0.8; c.stroke();
+    // windows / floor lines on the facades of the towers
+    if (!top && b.tower) {
+      c.save(); c.strokeStyle = rgba('orange', 0.22 + 0.3 * lit); c.lineWidth = 0.6; c.beginPath();
+      const a = V[f[0]], bb = V[f[1]];
+      for (let y = 12; y < h - 4; y += 10) { const [X0, Y0] = P(a[0], y, a[2]), [X1, Y1] = P(bb[0], y, bb[2]); c.moveTo(X0, Y0); c.lineTo(X1, Y1); }
+      c.stroke(); c.restore();
+    }
+  }
+  if (b.tower) { // roof hatch: armament hatch cross
+    const [X0, Y0] = P(x0, h, z0), [X1, Y1] = P(x1, h, z1), [X2, Y2] = P(x1, h, z0), [X3, Y3] = P(x0, h, z1);
+    c.strokeStyle = rgba('amber', 0.7); c.lineWidth = 0.7; c.beginPath(); c.moveTo(X0, Y0); c.lineTo(X1, Y1); c.moveTo(X2, Y2); c.lineTo(X3, Y3); c.stroke();
+  }
+}
+
+
+function draw(c) {
+  // ---- sky: faint horizon hatch + stars of data
+  const hz = P(0, 0, -6000)[1];
+  c.save();
+  for (let i = 0; i < 90; i++) { c.fillStyle = rgba('orange', 0.12 + 0.2 * hash(i, 3)); c.fillRect(hash(i, 1) * W, 150 + hash(i, 2) * (hz - 170), 1.5, 1.5); }
+  c.restore();
+  // ---- depth-faded strokes: near slopes (under the camera) fade out, far ridge reads as the backdrop
+  const buckets = new Map();
+  const seg = (a, b, base, col = 'orange') => {
+    const d = (depth(...a) + depth(...b)) / 2;
+    const al = base * smoothstep(650, 1350, d) * (1 - 0.5 * smoothstep(2200, 3200, d));
+    if (al < 0.01) return;
+    const key = col + '|' + (Math.round(al * 40) / 40).toFixed(3);
+    let p = buckets.get(key); if (!p) { p = new Path2D(); buckets.set(key, p); }
+    const [X0, Y0] = P(...a), [X1, Y1] = P(...b); p.moveTo(X0, Y0); p.lineTo(X1, Y1);
+  };
+  for (let g = -1800; g <= 1800; g += 50) for (let s2 = -1800; s2 < 1800; s2 += 25) {
+    const A = [g, mountH(g, s2), s2], B = [g, mountH(g, s2 + 25), s2 + 25];
+    const C = [s2, mountH(s2, g), g], D = [s2 + 25, mountH(s2 + 25, g), g];
+    const k = g % 250 === 0 ? 0.16 : 0.07;
+    seg(A, B, k); seg(C, D, k);
+  }
+  for (let L = 12; L <= 320; L += 12) {
+    let prev = null;
+    for (let i = 0; i <= 540; i++) {
+      const th = (i / 540) * TAU;
+      let lo = 480, hi = 1900;
+      if (mountH(Math.cos(th) * hi, Math.sin(th) * hi) < L) { prev = null; continue; }
+      for (let it = 0; it < 22; it++) { const m = (lo + hi) / 2; if (mountH(Math.cos(th) * m, Math.sin(th) * m) < L) lo = m; else hi = m; }
+      const pt = [Math.cos(th) * lo, L, Math.sin(th) * lo];
+      if (prev) seg(prev, pt, L % 60 === 0 ? 0.75 : 0.36);
+      prev = pt;
+    }
+  }
+  c.save(); c.lineWidth = 1;
+  for (const [key, p] of buckets) { const [col, a] = key.split('|'); c.strokeStyle = rgba(col, +a); c.stroke(p); }
+  c.restore();
+  // ---- Lake Ashi: hatched ellipse on the ground
+  c.save();
+  const lake = [];
+  for (let i = 0; i < 64; i++) { const a = (i / 64) * TAU; const lx = 62 * Math.cos(a), lz = 128 * Math.sin(a), ca = Math.cos(-0.78), sa = Math.sin(-0.78); lake.push([-168 + lx * ca - lz * sa, 0, 176 + lx * sa + lz * ca]); }
+  line3(c, lake, true); c.fillStyle = 'rgba(5,4,3,1)'; c.fill(); c.strokeStyle = rgba('orange', 0.6); c.lineWidth = 1; c.stroke();
+  c.clip(); c.strokeStyle = rgba('orange', 0.18); c.lineWidth = 0.7; c.beginPath();
+  for (let s = -400; s <= 400; s += 8) { const [X0, Y0] = P(-400, 0, s + 176), [X1, Y1] = P(100, 0, s + 176 + 200); c.moveTo(X0, Y0); c.lineTo(X1, Y1); }
+  c.stroke(); c.restore();
+  // ---- geofront ring on the ground + district boundary rings
+  c.save();
+  for (const [r, a] of [[CITY_R + 30, 0.35], [250, 0.3], [60, 0.5]]) {
+    const pts = []; for (let i = 0; i <= 96; i++) { const t = (i / 96) * TAU; pts.push([Math.cos(t) * r, 0, Math.sin(t) * r]); }
+    line3(c, pts); c.strokeStyle = rgba('orange', a); c.setLineDash(r === 250 ? [6, 6] : []); c.lineWidth = 1; c.stroke();
+  }
+  c.setLineDash([]);
+  for (let i = 0; i < 6; i++) { const t = (i / 6) * TAU + 0.3; line3(c, [[Math.cos(t) * 60, 0, Math.sin(t) * 60], [Math.cos(t) * (CITY_R + 30), 0, Math.sin(t) * (CITY_R + 30)]]); c.strokeStyle = rgba('orange', 0.16); c.stroke(); }
+  c.restore();
+  // ---- scan line on the ground (the sweep plane, N–S)
+  c.save();
+  const sx0 = -560, sx1 = 560;
+  line3(c, [[sx0, 0, SCAN_Z], [sx1, 0, SCAN_Z]]); c.strokeStyle = rgba('amber', 0.95); c.lineWidth = 2; c.stroke();
+  for (let k = 1; k < 16; k++) { line3(c, [[sx0, 0, SCAN_Z + k * 5], [sx1, 0, SCAN_Z + k * 5]]); c.strokeStyle = rgba('amber', 0.12 * (1 - k / 16)); c.lineWidth = 1; c.stroke(); }
+  // the curtain: vertical hairlines rising from the scan line
+  c.beginPath();
+  for (let x = sx0; x <= sx1; x += 30) { const [X0, Y0] = P(x, 0, SCAN_Z), [X1, Y1] = P(x, 60, SCAN_Z); c.moveTo(X0, Y0); c.lineTo(X1, Y1); }
+  c.strokeStyle = rgba('amber', 0.2); c.lineWidth = 0.8; c.stroke();
+  line3(c, [[sx0, 60, SCAN_Z], [sx1, 60, SCAN_Z]]); c.strokeStyle = rgba('amber', 0.35); c.stroke();
+  const [slx, sly] = P(sx1, 60, SCAN_Z);
+  c.restore();
+  // ---- cyan beacon (pattern blue) on the north-east ridge, ground rings
+  const BX = -380, BZ = -820, BY = mountH(BX, BZ);
+  c.save();
+  for (let k = 1; k <= 4; k++) {
+    const pts = []; for (let i = 0; i <= 64; i++) { const t = (i / 64) * TAU; const x = BX + Math.cos(t) * k * 34, z = BZ + Math.sin(t) * k * 34; pts.push([x, mountH(x, z) + 2, z]); }
+    line3(c, pts); c.strokeStyle = rgba('cyan', 0.75 - k * 0.14); c.lineWidth = 1.4; c.stroke();
+  }
+  // (buildings drawn after, then the beam on top)
+  c.restore();
+
+  // ---- buildings, back to front
+  blds.sort((a, b) => depth(b.cx, b.h / 2, b.cz) - depth(a.cx, a.h / 2, a.cz));
+  for (const b of blds) drawBox(c, b);
+
+  // beam
+  {
+    const [X0, Y0] = P(BX, BY, BZ), [X1, Y1] = P(BX, BY + 900, BZ);
+    c.save();
+    c.strokeStyle = rgba('cyan', 0.18); c.lineWidth = 14; c.beginPath(); c.moveTo(X0, Y0); c.lineTo(X1, Y1); c.stroke();
+    c.strokeStyle = rgba('cyan', 0.5); c.lineWidth = 5; c.stroke();
+    c.strokeStyle = 'rgba(200,245,255,1)'; c.lineWidth = 1.6; c.stroke();
+    // diamond marker + brackets
+    c.beginPath(); c.moveTo(X0, Y0 - 16); c.lineTo(X0 + 12, Y0); c.lineTo(X0, Y0 + 16); c.lineTo(X0 - 12, Y0); c.closePath();
+    c.fillStyle = rgba('cyan', 1); c.fill();
+    brackets(c, X0 - 34, Y0 - 34, 68, 68, 12, rgba('cyan', 1), 1.6);
+    // label
+    const lx = X0 + 50, ly = Y0 - 150;
+    c.strokeStyle = rgba('cyan', 0.8); c.lineWidth = 1; c.beginPath(); c.moveTo(X0 + 34, Y0 - 34); c.lineTo(lx - 6, ly + 30); c.lineTo(lx + 230, ly + 30); c.stroke();
+    c.fillStyle = rgba('cyan', 1); c.fillRect(lx, ly - 6, 176, 26);
+    txt(c, 'PATTERN BLUE', lx + 8, ly + 13, 14, rgba('ink', 1), { w: 700, track: 3 });
+    jpText(c, '使徒  確認', lx, ly + 54, 17, rgba('cyan', 1), { w: 800 });
+    txt(c, 'BLOOD TYPE: BLUE  //  BRG 312.4', lx, ly + 76, 11, rgba('cyan', 0.85), { w: 600, track: 2 });
+    c.restore();
+  }
+
+  // ---- district tags (leader lines from ground points)
+  const tags = [
+    [0, 0, 'C-00', 'CENTRAL', '中央区', -360, -150],
+    [180, -250, 'N-01', 'GORA', '強羅', 0, -180],
+    [300, 160, 'E-05', 'MIYANOSHITA', '宮ノ下', 60, -110],
+    [-168, 176, 'W-03', 'MOTOHAKONE', '元箱根', -150, -70],
+    [-330, -150, 'N-02', 'SENGOKUHARA', '仙石原', -120, -190],
+    [120, 380, 'S-04', 'YUMOTO', '湯本', 120, 20],
+  ];
+  for (const [x, z, code, en, j, dx, dy] of tags) {
+    const [X, Y] = P(x, 0, z);
+    const lx = X + dx, ly = Y + dy;
+    c.save();
+    c.strokeStyle = rgba('orange', 0.75); c.lineWidth = 1; c.beginPath(); c.moveTo(X, Y); c.lineTo(lx, ly + 8); c.stroke();
+    c.fillStyle = rgba('orange', 1); c.fillRect(X - 3, Y - 3, 6, 6);
+    c.fillStyle = 'rgba(5,4,3,0.85)'; c.fillRect(lx - 4, ly - 32, 190, 44);
+    c.fillStyle = rgba('orange', 1); chamferPath(c, lx - 4, ly - 32, 52, 18, [0, 6, 0, 0]); c.fill();
+    txt(c, code, lx + 1, ly - 18, 11, rgba('ink', 1), { w: 700, track: 1.5 });
+    txt(c, en, lx + 54, ly - 18, 12, rgba('orange', 1), { w: 700, track: 2 });
+    jpText(c, j, lx, ly + 4, 15, rgba('orange', 0.9), { w: 700 });
+    c.fillStyle = rgba('orange', 0.9); c.fillRect(lx - 4, ly + 8, 190, 1);
+    c.restore();
+  }
+  // scan label at the right end of the sweep
+  { const [qx, qy] = P(sx0, 0, SCAN_Z);
+  txt(c, 'SCAN 04/08  N→S', qx - 14, qy - 36, 12, rgba('amber', 1), { w: 700, track: 2, align: 'right' });
+  jpText(c, '走査中', qx - 14, qy - 16, 14, rgba('amber', 1), { align: 'right' }); }
+
+  // ---- title (top-left)
+  chrome(c, { no: '12', en: 'TOKYO-3', jpText: '第3新東京市  戦術地図', sub: 'FORTRESS CITY  //  NIGHT OBSERVATION  //  上空監視カメラ', clock: '02:07.19', barText: 'BAR 069  BEAT 1  133.33 BPM', beat: 1,
+    tick: 'TOKYO-3 // 第3新東京市 // ARMAMENT BUILDINGS DEPLOYED 41/41 // GEOFRONT SEAL NOMINAL // UNIDENTIFIED SIGNAL: BEARING 312 // PATTERN BLUE CONFIRMED //', tickOff: 90 });
+  evaLabel(c, 64, 188, 'fortress city  //  tactical map', undefined, { alpha: 0.9 });
+  condensed(c, 'TOKYO-3', 58, 356, 190, { sx: 0.58, color: rgba('bone', 1) });
+  c.font = jp(46, 900, true); c.fillStyle = rgba('orange', 1); c.fillText('第3新東京市', 66, 418);
+  meta(c, 68, 460, [['CAM', 'ORBIT 01  ALT 560M'], ['HDG', '029.8°  FOV 42°'], ['GRID', '50M  //  CALDERA'], ['MODE', 'HIDDEN-LINE']], { size: 11, keyW: 52, lead: 18, color: rgba('orange', 0.8) });
+
+  // ---- right column: armament + geofront (slim)
+  const RX = 1570, RW = 294;
+  const dp = panel(c, RX, 162, RW, 300, { title: 'ARMAMENT', jp: '兵装ビル', cut: 14 });
+  const DIST = [['C-00', '中央区', 0.92], ['N-01', '強羅', 0.71], ['N-02', '仙石原', 0.55], ['W-03', '元箱根', 0.8], ['S-04', '湯本', 0.46], ['E-05', '宮ノ下', 0.88], ['E-06', '大涌谷', 0.63]];
+  DIST.forEach(([code, j, v], i) => {
+    const y = dp.y + 6 + i * 30;
+    txt(c, code, dp.x, y + 11, 11, rgba('orange', 1), { w: 700, track: 1.5 });
+    jpText(c, j, dp.x + 50, y + 12, 12, rgba('orange', 0.7), { w: 600 });
+    segMeter(c, dp.x + 118, y, dp.w - 158, 12, 14, v, { hotFrom: 2 });
+    txt(c, String(Math.round(v * 12)).padStart(2, '0'), dp.x + dp.w, y + 11, 11, rgba('amber', 1), { w: 700, align: 'right' });
+  });
+  jpText(c, '展開完了  DEPLOYED 41/41', dp.x, dp.y + dp.h - 4, 13, rgba('green', 1), { w: 700 });
+  const gp = panel(c, RX, 478, RW, 250, { title: 'GEOFRONT', jp: 'ジオフロント断面', cut: 14 });
+  {
+    // cross-section: ground line, dome cavity, towers hanging from the ceiling
+    const gx = gp.x, gy = gp.y + 40, gw = gp.w;
+    c.save();
+    c.strokeStyle = rgba('orange', 0.9); c.lineWidth = 1.5;
+    c.beginPath(); c.moveTo(gx, gy); c.lineTo(gx + gw, gy); c.stroke();
+    c.beginPath(); c.ellipse(gx + gw / 2, gy + 20, gw * 0.42, 130, 0, 0, Math.PI); c.strokeStyle = rgba('orange', 0.7); c.stroke();
+    for (let i = 0; i < 18; i++) {
+      const x = gx + 30 + i * ((gw - 60) / 17), hh = 20 + 80 * SPEC[i * 3], up = 10 + 44 * SPEC[i * 3 + 1];
+      c.fillStyle = rgba(i % 5 === 2 ? 'amber' : 'orange', 0.75); c.fillRect(x - 3, gy - up, 6, up + hh * 0.55);
+    }
+    c.fillStyle = rgba('orange', 0.12); for (let x = gx; x < gx + gw; x += 6) c.fillRect(x, gy + 2, 1, 6);
+    c.restore();
+    txt(c, 'DEPTH -0.7 KM  //  SEAL 22 LAYERS', gp.x, gp.y + gp.h - 4, 10, rgba('orange', 0.75), { w: 600, track: 1.5 });
+  }
+
+  // ---- bottom-left: camera readout + small scope of the pads
+  const cp = panel(c, 56, 1000, 420, 118, { title: 'SIGNAL', jp: '信号解析', header: 24, cut: 12, color: rgba('cyan', 1) });
+  waveScope(c, cp.x, cp.y - 4, 250, cp.h + 4, { t0: 127.3, win: 0.03, gain: 0.5, col: rgba('cyan', 1), gridCol: 'cyan', n: 200, lw: 1.2 });
+  jpText(c, '使徒反応', cp.x + 266, cp.y + 16, 16, rgba('cyan', 1), { w: 800 });
+  txt(c, 'PATTERN  BLUE', cp.x + 266, cp.y + 38, 11, rgba('cyan', 0.85), { w: 700, track: 2 });
+  txt(c, 'SEISMIC  0.02', cp.x + 266, cp.y + 58, 11, rgba('orange', 0.85), { w: 600, track: 2 });
+  // viewport brackets
+  brackets(c, 40, 150, W - 80, 1000, 26, rgba('orange', 0.6), 1.5);
+  // compass rose (small) bottom right of the viewport
+  {
+    const ox = 1780, oy = 1050, r = 46;
+    c.save(); c.strokeStyle = rgba('orange', 0.7); c.lineWidth = 1;
+    octPath(c, ox, oy, r); c.stroke();
+    const [ax, ay] = P(0, 0, -300), [bx, by] = P(0, 0, 0); const an = Math.atan2(ay - by, ax - bx);
+    c.beginPath(); c.moveTo(ox, oy); c.lineTo(ox + Math.cos(an) * r * 0.9, oy + Math.sin(an) * r * 0.9); c.strokeStyle = rgba('amber', 1); c.lineWidth = 2; c.stroke();
+    txt(c, 'N', ox + Math.cos(an) * (r + 14), oy + Math.sin(an) * (r + 14) + 4, 12, rgba('amber', 1), { w: 700, align: 'center' });
+    c.restore();
+  }
+}
+run(draw, { bloom: 0.55, threshold: 0.66, vignette: 0.45 });
+</script></body></html>

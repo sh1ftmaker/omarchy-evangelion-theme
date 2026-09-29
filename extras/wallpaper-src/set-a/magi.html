@@ -1,0 +1,224 @@
+<!doctype html><html><head><meta charset="utf-8"><title>magi</title>
+<style>html,body{margin:0;background:#050403;overflow:hidden}canvas{display:block;width:2560px;height:1600px}</style>
+</head><body><canvas id="c"></canvas>
+<script src="kit.js"></script>
+<script>
+const UNITS = [
+  { name: 'MELCHIOR·1', jp: 'メルキオール', range: 'LOW  30–250 HZ', b: [0, 20] },
+  { name: 'BALTHASAR·2', jp: 'バルタザール', range: 'MID  250–2.5K HZ', b: [21, 42] },
+  { name: 'CASPER·3', jp: 'カスパー', range: 'HIGH 2.5K–16K HZ', b: [43, 63] },
+];
+const DY = 64;
+const BLK = [
+  { r: [1044, 628 + DY, 400, 222], cut: [74, 10, 10, 10], head: 'bottom' },
+  { r: [760, 184 + DY, 400, 222], cut: [10, 10, 74, 74], head: 'top' },
+  { r: [476, 628 + DY, 400, 222], cut: [10, 74, 10, 10], head: 'bottom' },
+];
+// frozen vote state: MELCHIOR approve (fading), BALTHASAR reject, CASPER approve (just cast: solid flash)
+const STATE = [{ ok: true, fl: 0.18 }, { ok: false, fl: 0.3 }, { ok: true, fl: 1.0 }];
+const SPEC = synthSpectrum(64, 11);
+const SQ3 = Math.sqrt(3);
+
+function block(c, u) {
+  const { r: [x, y, w, h], cut, head } = BLK[u];
+  const U = UNITS[u], st = STATE[u];
+  const colKey = st.ok ? 'green' : 'red', col = rgba(colKey, 1);
+  const fillA = 0.16 + 0.8 * st.fl, solid = fillA > 0.5;
+  c.save();
+  chamferPath(c, x, y, w, h, cut);
+  c.fillStyle = 'rgba(8,5,2,0.95)'; c.fill();
+  c.fillStyle = rgba(colKey, fillA * (solid ? 1 : 0.6)); c.fill();
+  c.save(); c.clip();
+  const hh = 30, sy = head === 'top' ? y : y + h - hh;
+  c.fillStyle = solid ? rgba('ink', 1) : col; c.fillRect(x, sy, w, hh);
+  c.fillStyle = solid ? col : rgba('ink', 1);
+  c.font = mono(700, 16); c.letterSpacing = '3px'; c.textBaseline = 'middle';
+  c.fillText(U.name, x + 16, sy + hh / 2 + 1); c.letterSpacing = '0px';
+  c.font = jp(14, 700, false); c.textAlign = 'right'; c.fillText(U.jp, x + w - 14, sy + hh / 2 + 1); c.textAlign = 'left';
+  // hex spectrum of the unit's band
+  const by = head === 'top' ? y + hh + 4 : y + 4, bh = h - hh - 8;
+  const r = 11.5, dx = SQ3 * r, dy = 1.5 * r;
+  const cols = Math.floor((w - 16) / dx), rows = Math.floor((bh - r) / dy) + 1;
+  const lit = new Path2D(), dim = new Path2D(), top = new Path2D();
+  const [b0, b1] = U.b;
+  for (let ci = 0; ci < cols; ci++) {
+    const band = Math.round(b0 + ((b1 - b0) * ci) / (cols - 1));
+    const e = smoothstep(0.15, 1, SPEC[band]) * (0.8 + 0.4 * hash(ci, u, 5));
+    const lvl = e * rows;
+    for (let ri = 0; ri < rows; ri++) {
+      const cx = x + 8 + dx / 2 + ci * dx + (ri % 2 ? dx / 2 : 0);
+      if (cx > x + w - 8) continue;
+      const cy = by + bh - r - ri * dy;
+      const p = ri < Math.floor(lvl) ? lit : ri < lvl + 0.5 ? top : dim;
+      const pr = p === dim ? r - 3 : r - 2;
+      for (let i = 0; i < 6; i++) { const a = Math.PI / 6 + (i * Math.PI) / 3, px = cx + pr * Math.cos(a), py = cy + pr * Math.sin(a); if (i === 0) p.moveTo(px, py); else p.lineTo(px, py); }
+      p.closePath();
+    }
+  }
+  if (solid) { c.fillStyle = rgba('ink', 0.5); c.fill(lit); c.fillStyle = rgba('ink', 0.8); c.fill(top); c.fillStyle = rgba('ink', 0.12); c.fill(dim); }
+  else { c.fillStyle = rgba(colKey, 0.09); c.fill(dim); c.fillStyle = rgba(colKey, 0.75); c.fill(lit); c.fillStyle = rgba(colKey === 'green' ? 'bone' : 'amber', 1); c.fill(top); }
+  c.restore();
+  chamferPath(c, x, y, w, h, cut); c.strokeStyle = col; c.lineWidth = 3; c.stroke();
+  // vote plate
+  const kan = st.ok ? '承認' : '否決';
+  const kx = x + w / 2, ky = (head === 'top' ? y + hh + (h - hh) / 2 : y + (h - hh) / 2) + 2;
+  const pw = 208, ph = 96;
+  chamferPath(c, kx - pw / 2, ky - ph / 2, pw, ph, 12);
+  c.fillStyle = solid ? col : 'rgba(5,4,3,0.9)'; c.fill();
+  c.strokeStyle = solid ? rgba('ink', 1) : col; c.lineWidth = 2; c.stroke();
+  c.fillStyle = solid ? rgba('ink', 1) : col;
+  c.font = jp(74, 900, true); c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText(kan, kx, ky + 4);
+  c.restore();
+}
+
+function draw(c) {
+  hexGround(c, 38, 0.07, 3);
+  chrome(c, { no: '02', en: 'MAGI SYSTEM', jpText: 'マギ・システム 審議', sub: 'SUPERCOMPUTER DELIBERATION  //  3 UNITS ONLINE  //  第7世代有機コンピュータ', clock: '00:13.87', barText: 'BAR 004  BEAT 3  133.33 BPM', beat: 3,
+    tick: 'MAGI DELIBERATION IN PROGRESS // MELCHIOR·1 BALTHASAR·2 CASPER·3 // AUDIO QUERY: NEON_OVERDRIVE.WAV // 審議中 // PRIORITY AAA // GEHIRN LEGACY CODE 473', tickOff: 260 });
+
+  // ================= centre diagram
+  panel(c, 424, 156, 1072, 844, { title: 'MAGI', jp: '三賢者', cut: 22, right: 'NODE 3/3  //  LINK 99.8%' });
+  const kbox = (x, y, w, kan, en, col, solid = false) => {
+    chamferPath(c, x, y, w, 62, [0, 14, 0, 14]);
+    c.fillStyle = solid ? col : 'rgba(0,0,0,0.6)'; c.fill(); c.strokeStyle = col; c.lineWidth = 2; c.stroke();
+    c.fillStyle = solid ? rgba('ink', 1) : col;
+    c.font = jp(38, 900, true); c.textBaseline = 'middle'; c.textAlign = 'left'; c.fillText(kan, x + 16, y + 33);
+    c.font = mono(700, 13); c.letterSpacing = '3px'; c.fillText(en, x + 108, y + 33); c.letterSpacing = '0px';
+  };
+  kbox(448, 206, 270, '提訴', 'APPEAL', rgba('orange', 1));
+  meta(c, 452, 304, [['CODE', '473'], ['FILE', 'MAGI_SYS'], ['EXTENTION', '3023'], ['EX_MODE', 'OFF'], ['PRIORITY', 'AAA'], ['QUERY', '027']], { size: 13, keyW: 104 });
+  kbox(1202, 206, 270, '決議', 'RESOLUTION', rgba('orange', 1));
+  {
+    const x = 1202, y = 282, w = 270, h = 132, col = rgba('green', 1);
+    chamferPath(c, x, y, w, h, [0, 0, 18, 0]);
+    c.fillStyle = 'rgba(0,0,0,0.6)'; c.fill(); c.strokeStyle = col; c.lineWidth = 3; c.stroke();
+    c.fillStyle = col; c.font = jp(70, 900, true); c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.fillText('承認', x + w / 2, y + 58);
+    c.font = mono(700, 13); c.letterSpacing = '3px'; c.fillText('APPROVED  2/3', x + w / 2, y + 112); c.letterSpacing = '0px'; c.textAlign = 'left';
+  }
+  // connecting bars + data packets
+  const bars = [[800, 370 + DY, 846, 666 + DY], [1120, 370 + DY, 1074, 666 + DY], [876, 740 + DY, 1044, 740 + DY]];
+  bars.forEach(([x0, y0, x1, y1], i) => {
+    c.lineCap = 'butt';
+    c.strokeStyle = rgba('orange', 0.95); c.lineWidth = 16; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke();
+    c.strokeStyle = rgba('ink', 1); c.lineWidth = 6; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke();
+    for (let k = 0; k < 3; k++) { const ph = (0.17 + k / 3 + i * 0.21) % 1; c.fillStyle = rgba('amber', 1); c.fillRect(x0 + (x1 - x0) * ph - 3, y0 + (y1 - y0) * ph - 3, 6, 6); }
+  });
+  condensed(c, 'MAGI', 960, 598 + DY, 146, { sx: 0.55, color: rgba('orange', 1), align: 'center', bold: 0.03 });
+  evaLabel(c, 960, 626 + DY, 'supercomputer system', undefined, { align: 'center', alpha: 0.85 });
+  jpText(c, '人格移植OS  三系統合議制', 960, 650 + DY, 15, rgba('orange', 0.85), { align: 'center', w: 600 });
+  for (let u = 0; u < 3; u++) block(c, u);
+  // under-diagram status strip inside the panel
+  {
+    const y = 944;
+    c.fillStyle = rgba('orange', 0.35); c.fillRect(448, y - 18, 1024, 1);
+    txt(c, 'DELIBERATION', 448, y + 6, 13, rgba('orange', 1), { w: 700, track: 3 });
+    jpText(c, '審議中', 578, y + 7, 16, rgba('orange', 1), { w: 800 });
+    segMeter(c, 650, y - 6, 420, 14, 42, 0.64, { hotFrom: 2 });
+    txt(c, 'VOTE 027  //  QUORUM 2/3  //  T-02.62', 1472, y + 6, 12, rgba('orange', 0.85), { w: 600, align: 'right', track: 2 });
+  }
+
+  // ================= input routing spectrum
+  const sp = panel(c, 424, 1016, 1072, 116, { title: 'INPUT ROUTING', jp: '入力分配', header: 24, cut: 14 });
+  {
+    const n = 64, gx = sp.x + 190, gw = sp.w - 190, bw = gw / n, bh = sp.h - 14, segs = 10;
+    meta(c, sp.x + 4, sp.y + 14, [['MEL', '64 BANDS'], ['SPAN', '30–16K HZ'], ['GAIN', '+2.4 DB']], { size: 11, lead: 17, keyW: 48 });
+    for (let b = 0; b < n; b++) {
+      const e = smoothstep(0.12, 1, SPEC[b]), u = b <= 20 ? 0 : b <= 42 ? 1 : 2;
+      const col = STATE[u].ok ? rgba('green', 1) : rgba('red', 1);
+      const lit = e * segs;
+      for (let s = 0; s < segs; s++) {
+        const y = sp.y + bh - (s + 1) * (bh / segs);
+        c.fillStyle = s < lit ? (s >= segs - 2 ? rgba('amber', 1) : col) : rgba('orange', 0.08);
+        c.fillRect(gx + b * bw + 1, y + 1, bw - 2, bh / segs - 2);
+      }
+    }
+    [[0, 20], [21, 42], [43, 63]].forEach(([a, b], i) => {
+      const x0 = gx + a * bw, x1 = gx + (b + 1) * bw;
+      c.fillStyle = rgba('orange', 0.8); c.fillRect(x0 + 2, sp.y + bh + 3, x1 - x0 - 4, 2);
+    });
+  }
+
+  // ================= left: system log + input scope
+  const lg = panel(c, 56, 156, 344, 604, { title: 'SYSTEM LOG', jp: '処理記録', cut: 16 });
+  {
+    const N = 28, lead = 19.5, ops = ['SYNC', 'PARSE', 'QUERY', 'CACHE', 'LINK', 'EVAL'];
+    c.font = mono(500, 12.5); c.textBaseline = 'alphabetic';
+    let vi = 0;
+    for (let i = 0; i < N; i++) {
+      const y = lg.y + 14 + i * lead;
+      const isVote = (i % 5 === 3) || i === N - 2;
+      let s, color;
+      if (isVote) {
+        const u = vi % 3, ok = i === N - 2 ? true : hash(i, 9) > 0.35; vi++;
+        const uu = i === N - 2 ? 2 : u;
+        s = `${(11.2 + i * 0.1).toFixed(2).padStart(6, '0')} ${UNITS[uu].name.padEnd(12)}${ok ? 'APPROVE' : 'REJECT'}`;
+        color = ok ? 'green' : 'red';
+        if (i === N - 2) { c.fillStyle = rgba('green', 0.9); c.fillRect(lg.x - 2, y - 13, lg.w + 4, 17); c.fillStyle = rgba('ink', 1); }
+        else c.fillStyle = rgba(color, 0.95);
+      } else {
+        s = `${(0x3f00 + i * 16).toString(16).toUpperCase()}  ${ops[i % 6].padEnd(6)}${hexData(i, 3, 6)} ${hexData(i, 9, 4)}`;
+        c.fillStyle = rgba('orange', 0.3 + 0.6 * (i / N));
+      }
+      c.fillText(s, lg.x + 2, y);
+    }
+    c.fillStyle = rgba('orange', 0.9); c.fillRect(lg.x + 2, lg.y + 14 + N * lead - 12, 9, 14);
+  }
+  const sc = panel(c, 56, 776, 344, 356, { title: 'INPUT SIGNAL', jp: '入力信号', cut: 16 });
+  waveScope(c, sc.x, sc.y, sc.w, sc.h - 38, { t0: 13.8, win: 0.06, gain: 0.95, col: rgba('amber', 1) });
+  meta(c, sc.x, sc.y + sc.h - 12, [['RMS', '-6.2 DB   PEAK 0.91']], { size: 11, keyW: 36 });
+
+  // ================= right: tally, load, deliberation
+  const tl = panel(c, 1520, 156, 344, 380, { title: 'VOTE TALLY', jp: '投票集計', cut: 16 });
+  {
+    for (let u = 0; u < 3; u++) {
+      const y = tl.y + 12 + u * 78, st = STATE[u], col = rgba(st.ok ? 'green' : 'red', 1);
+      txt(c, UNITS[u].name, tl.x, y + 12, 14, rgba('orange', 1), { w: 700, track: 2 });
+      jpText(c, UNITS[u].jp, tl.x + 150, y + 12, 13, rgba('orange', 0.7), { w: 600 });
+      chamferPath(c, tl.x + tl.w - 70, y - 2, 70, 20, [0, 6, 0, 6]); c.fillStyle = col; c.fill();
+      jpText(c, st.ok ? '承認' : '否決', tl.x + tl.w - 35, y + 13, 13, rgba('ink', 1), { w: 800, align: 'center' });
+      for (let i = 0; i < 16; i++) {
+        const has = i < 9 + u, ok = i === 8 + u ? st.ok : hash(i, u, 21) > 0.33;
+        c.fillStyle = has ? rgba(ok ? 'green' : 'red', 0.9) : rgba('orange', 0.1);
+        c.fillRect(tl.x + i * 20, y + 26, 16, 16);
+      }
+      c.fillStyle = rgba('orange', 0.3); c.fillRect(tl.x, y + 58, tl.w, 1);
+    }
+    const y = tl.y + 250;
+    jpText(c, '承認', tl.x, y + 18, 16, rgba('green', 1), { w: 800 });
+    txt(c, 'APPROVE', tl.x, y + 36, 11, rgba('green', 1), { w: 600, track: 2 });
+    sevenSeg(c, '19', tl.x + 78, y, 44, rgba('green', 1), rgba('green', 0.07));
+    jpText(c, '否決', tl.x + 172, y + 18, 16, rgba('red', 1), { w: 800 });
+    txt(c, 'REJECT', tl.x + 172, y + 36, 11, rgba('red', 1), { w: 600, track: 2 });
+    sevenSeg(c, '08', tl.x + 248, y, 44, rgba('red', 1), rgba('red', 0.07));
+  }
+  const ld = panel(c, 1520, 552, 344, 300, { title: 'PROCESSOR LOAD', jp: '演算負荷', cut: 16 });
+  {
+    const L = [0.82, 0.61, 0.94];
+    for (let u = 0; u < 3; u++) {
+      const v = L[u], x = ld.x + 14 + u * 110;
+      segMeter(c, x, ld.y + 4, 46, ld.h - 58, 16, v, { vertical: true, hotFrom: 0.85 });
+      sevenSeg(c, String(Math.round(v * 99)).padStart(2, '0'), x + 54, ld.y + ld.h - 90, 30, rgba('amber', 1), rgba('orange', 0.07), { thick: 3.6 });
+      txt(c, ['MEL-1', 'BAL-2', 'CAS-3'][u], x, ld.y + ld.h - 34, 12, rgba('orange', 1), { w: 700, track: 1.5 });
+      txt(c, '%LOAD', x + 54, ld.y + ld.h - 100, 10, rgba('orange', 0.6), { track: 1 });
+    }
+  }
+  const dl = panel(c, 1520, 868, 344, 264, { title: 'DELIBERATION', jp: '審議', cut: 16 });
+  {
+    const col = rgba('orange', 1);
+    txt(c, 'TIME TO RESOLUTION', dl.x, dl.y + 12, 11, col, { w: 600, track: 2 });
+    jpText(c, '決議まで', dl.x + 200, dl.y + 12, 13, col, { w: 600 });
+    sevenSeg(c, '02:62', dl.x, dl.y + 28, 64, col, rgba('orange', 0.07), { glow: 6 });
+    segMeter(c, dl.x, dl.y + 112, dl.w, 14, 30, 0.58, { color: col, hotFrom: 2 });
+    jpText(c, '審議中  DELIBERATING', dl.x, dl.y + 162, 18, col, { w: 800 });
+    txt(c, 'MAJORITY RULE  //  3 SYSTEM', dl.x, dl.y + 190, 11, rgba('orange', 0.6), { w: 600, track: 2 });
+  }
+  // edge decoration: vertical hex dump strip on far edges
+  c.save();
+  c.font = mono(400, 10); c.fillStyle = rgba('orange', 0.28);
+  for (let i = 0; i < 52; i++) { c.fillText(hexData(i, 71, 2), 18, 170 + i * 19); c.fillText(hexData(i, 72, 2), W - 34, 170 + i * 19); }
+  c.restore();
+}
+run(draw, { bloom: 0.6, threshold: 0.62, vignette: 0.3 });
+</script></body></html>

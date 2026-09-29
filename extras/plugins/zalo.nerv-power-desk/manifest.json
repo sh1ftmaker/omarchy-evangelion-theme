@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "zalo.nerv-power-desk",
+  "name": "NERV Activity Limit (desktop)",
+  "version": "1.0.0",
+  "author": "zalo",
+  "description": "NERV desktop-wall panel: always-on ACTIVITY LIMIT 活動限界 battery readout (7-segment countdown, umbilical state, drain bar, power profile) on the desktop layer, click-through. Simulate states: omarchy-shell nerv-power-desk simulate low|critical|depleted|charging|full|discharging|auto, or \"simulate\" on its shell.json entry.",
+  "kinds": ["panel"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "panel": "PowerDesk.qml"
+  }
+}

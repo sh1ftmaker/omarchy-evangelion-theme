@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "zalo.nerv-alert",
+  "name": "NERV alert",
+  "version": "1.0.0",
+  "author": "zalo",
+  "description": "Summonable NERV EMERGENCY / PATTERN BLUE / ACTIVITY LIMIT / SYNC alarm overlay (click-through, no focus). Payload: {\"variant\",\"title\",\"jp\",\"message\",\"sub\",\"value\",\"beats\",\"dim\"}",
+  "kinds": [
+    "panel"
+  ],
+  "entryPoints": {
+    "panel": "NervAlert.qml"
+  }
+}

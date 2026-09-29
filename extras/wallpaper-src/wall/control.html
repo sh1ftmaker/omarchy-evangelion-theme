@@ -1,0 +1,163 @@
+<!doctype html><html><head><meta charset="utf-8"><title>control</title>
+<style>html,body{margin:0;background:#050403;overflow:hidden}canvas{display:block;width:2560px;height:1600px}</style>
+</head><body><canvas id="c"></canvas>
+<script src="kit.js"></script>
+<script>
+// Backdrop for the NERV desktop wall (nerv-wall.json). Drawn in the 1280x800 logical reference grid.
+const DEBUG = location.search.includes('debug');
+const G = 8, BAR = 26, LW = 1280, LH = 800;
+const PANELS = [
+  { id: 'zalo.nerv-magi-desk',   x: 8,   y: 34,  w: 520, h: 422, n: '01', en: 'MAGI SYSTEM',   jp: '三賢者', small: 1 },
+  { id: 'zalo.nerv-psychograph', x: 8,   y: 464, w: 520, h: 328, n: '02', en: 'PSYCHOGRAPH',   jp: '心理グラフ' },
+  { id: 'zalo.nerv-power-desk',  x: 536, y: 34,  w: 368, h: 240, n: '03', en: 'POWER',         jp: '内部電源' },
+  { id: 'zalo.nerv-seele',       x: 536, y: 282, w: 368, h: 250, n: '04', en: 'SOUND ONLY',    jp: '人類補完計画', small: 1 },
+  { id: 'zalo.nerv-target',      x: 536, y: 540, w: 368, h: 252, n: '05', en: 'TARGET',        jp: '使徒' },
+  { id: 'zalo.nerv-tactical',    x: 912, y: 34,  w: 360, h: 758, n: '06', en: 'TACTICAL',      jp: '第3新東京市' },
+];
+const K = 1.5; // kit space (1920) -> reference (1280)
+const px = 1 / 2; // one physical pixel in reference units
+
+function inPanel(x, y) { return PANELS.some((p) => x > p.x && x < p.x + p.w && y > p.y && y < p.y + p.h); }
+
+// gutter segments: collect from panel edges (the 4px band centre lines outside each edge)
+function gutterLines() {
+  const H = [], V = [];
+  for (const p of PANELS) {
+    H.push([p.x - G / 2, p.x + p.w + G / 2, p.y - G / 2]);
+    H.push([p.x - G / 2, p.x + p.w + G / 2, p.y + p.h + G / 2]);
+    V.push([p.y - G / 2, p.y + p.h + G / 2, p.x - G / 2]);
+    V.push([p.y - G / 2, p.y + p.h + G / 2, p.x + p.w + G / 2]);
+  }
+  return { H, V };
+}
+function junctions() {
+  const m = new Map();
+  for (const p of PANELS) for (const [x, y] of [[p.x - 4, p.y - 4], [p.x + p.w + 4, p.y - 4], [p.x - 4, p.y + p.h + 4], [p.x + p.w + 4, p.y + p.h + 4]]) m.set(`${x},${y}`, [x, y]);
+  return [...m.values()];
+}
+
+function draw(c) {
+  // ---- texture: very faint hex ground (kit space)
+  hexGround(c, 30, 0.035, 11);
+  c.save(); c.scale(K, K);
+
+  // ---- panel interiors: faint dot graticule + chamfer ghost outline (quiet when the wall is off)
+  for (const p of PANELS) {
+    c.save(); chamferPath(c, p.x, p.y, p.w, p.h, [0, 10, 0, 10]); c.clip();
+    c.fillStyle = 'rgba(12,8,4,0.55)'; c.fillRect(p.x, p.y, p.w, p.h);
+    c.fillStyle = rgba('orange', 0.07);
+    for (let y = p.y + 16; y < p.y + p.h - 4; y += 16) for (let x = p.x + 16; x < p.x + p.w - 4; x += 16) c.fillRect(x - px / 2, y - px / 2, px * 2, px * 2);
+    // ghost panel number + bilingual label, bottom-right, huge & faint
+    const big = p.small ? 90 : Math.min(p.h * 0.62, 260);
+    condensed(c, p.n, p.x + p.w - 14, p.y + p.h - 14, big, { sx: 0.56, color: rgba('orange', 0.055), align: 'right', bold: 0.01 });
+    jpText(c, p.jp, p.x + 14, p.y + p.h - 16, Math.min(34, p.w / (p.jp.length * 1.4)), rgba('orange', 0.07), { serif: true, w: 900 });
+    txt(c, `${p.n} // ${p.en}`, p.x + 15, p.y + p.h - 16 - Math.min(34, p.w / (p.jp.length * 1.4)) - 6, 6, rgba('orange', 0.12), { w: 600, track: 1.6 });
+    c.restore();
+    c.save(); chamferPath(c, p.x + 0.5, p.y + 0.5, p.w - 1, p.h - 1, [0, 10, 0, 10]);
+    c.strokeStyle = rgba('orange', 0.16); c.lineWidth = px; c.stroke(); c.restore();
+  }
+
+  // ---- COMMAND CENTER watermark across the wall (ghosts through every panel)
+  c.save();
+  condensed(c, 'COMMAND CENTER', LW / 2, 470, 250, { sx: 0.5, color: rgba('bone', 0.045), align: 'center', bold: 0.012 });
+  c.font = jp(56, 900, true); c.fillStyle = rgba('orange', 0.05); c.textAlign = 'left'; c.letterSpacing = '18px';
+  c.fillText('第一発令所', 62, 612);
+  txt(c, 'FIRST COMMAND POST  //  NERV HQ GEOFRONT  //  地下', 64, 632, 9, rgba('orange', 0.09), { w: 600, track: 3 });
+  c.restore();
+
+  // ---- gutter rules
+  const { H, V } = gutterLines();
+  c.save(); c.strokeStyle = rgba('orange', 0.22); c.lineWidth = px;
+  c.beginPath();
+  for (const [x0, x1, y] of H) { c.moveTo(x0, y); c.lineTo(x1, y); }
+  for (const [y0, y1, x] of V) { c.moveTo(x, y0); c.lineTo(x, y1); }
+  c.stroke();
+  // ticks: every 8 ref px, major every 64 (absolute grid so parallel gutters agree)
+  c.strokeStyle = rgba('orange', 0.3);
+  c.beginPath();
+  for (const [x0, x1, y] of H) for (let x = Math.ceil((x0 + 6) / 8) * 8; x < x1 - 6; x += 8) {
+    const L = x % 64 === 0 ? 2.5 : 1; c.moveTo(x, y - L); c.lineTo(x, y + L);
+  }
+  for (const [y0, y1, x] of V) for (let y = Math.ceil((y0 + 6) / 8) * 8; y < y1 - 6; y += 8) {
+    const L = y % 64 === 0 ? 2.5 : 1; c.moveTo(x - L, y); c.lineTo(x + L, y);
+  }
+  c.stroke(); c.restore();
+
+  // ---- hazard accents on a few gutter segments
+  const haz = (x, y, w, h, col) => { hazard(c, x, y, w, h, 0, rgba(col, 0.42), rgba('ink', 1), 3); c.save(); c.strokeStyle = rgba(col, 0.5); c.lineWidth = px; c.strokeRect(x, y, w, h); c.restore(); };
+  haz(392, 457.5, 120, 5, 'orange');       // magi / psychograph gutter
+  haz(905.5, 588, 5, 92, 'amber');          // target / tactical gutter
+  haz(700, 533.5, 64, 5, 'orange');         // seele / target gutter
+  haz(56, 793.5, 80, 5, 'red');             // bottom margin, emergency
+  haz(1132, 29 - 1.5, 120, 3, 'orange');    // under bar, top-right
+
+  // ---- bracket corners hugging each panel from outside
+  c.save(); c.strokeStyle = rgba('orange', 0.75); c.lineWidth = 1; c.lineCap = 'butt';
+  for (const p of PANELS) {
+    const o = 2.5, L = 9, x0 = p.x - o, y0 = p.y - o, x1 = p.x + p.w + o, y1 = p.y + p.h + o;
+    c.beginPath();
+    c.moveTo(x0, y0 + L); c.lineTo(x0, y0); c.lineTo(x0 + L, y0); // TL
+    c.moveTo(x1 - L, y1); c.lineTo(x1, y1); c.lineTo(x1, y1 - L); // BR
+    c.stroke();
+    // chamfered corners (TR, BL): short 45° tick parallel to the cut
+    c.beginPath();
+    c.moveTo(x1 - 10 - 1, y0); c.lineTo(x1 - 16, y0);
+    c.moveTo(x1, y0 + 11); c.lineTo(x1, y0 + 16);
+    c.moveTo(x0 + 11, y1); c.lineTo(x0 + 16, y1);
+    c.moveTo(x0, y1 - 11); c.lineTo(x0, y1 - 16);
+    c.stroke();
+    c.save(); c.strokeStyle = rgba('amber', 0.55); c.lineWidth = px;
+    c.beginPath(); c.moveTo(x1 - 8, y0); c.lineTo(x1, y0 + 8); c.moveTo(x0, y1 - 8); c.lineTo(x0 + 8, y1); c.stroke(); c.restore();
+  }
+  c.restore();
+
+  // ---- registration marks at gutter junctions + coordinate labels
+  const J = junctions();
+  c.save();
+  for (const [x, y] of J) {
+    c.fillStyle = rgba('ink', 1); c.fillRect(x - 3, y - 3, 6, 6);
+    c.strokeStyle = rgba('amber', 0.9); c.lineWidth = px * 2;
+    c.beginPath(); c.moveTo(x - 3.5, y); c.lineTo(x + 3.5, y); c.moveTo(x, y - 3.5); c.lineTo(x, y + 3.5); c.stroke();
+    c.strokeStyle = rgba('orange', 0.5); c.lineWidth = px;
+    c.beginPath(); c.arc(x, y, 2.2, 0, TAU); c.stroke();
+  }
+  // labels along horizontal gutters, just right of each junction
+  for (const [x, y] of J) {
+    if (x > LW - 60 || inPanel(x + 20, y)) continue;
+    const s = `${String(x).padStart(4, '0')}.${String(y).padStart(3, '0')}`;
+    c.fillStyle = rgba('ink', 1);
+    txt(c, s, x + 8, y + 1.9, 5, rgba('orange', 0.55), { w: 600, track: 0.8 });
+  }
+  // vertical gutter labels (rotated), below each top junction of a vertical rule
+  const vlab = [[532, 30, 'SEC-A/B  区画'], [908, 30, 'SEC-B/C  区画'], [532, 460, 'MAGI-LINK'], [908, 278, 'TAC-FEED'], [908, 536, 'PATTERN//目標']];
+  for (const [x, y, s] of vlab) {
+    c.save(); c.translate(x - 1.8, y + 24); c.rotate(Math.PI / 2);
+    c.font = '600 5px "Noto Sans CJK JP"';
+    txt(c, s, 0, 0, 5, rgba('orange', 0.5), { w: 600, track: 0.8 });
+    c.restore();
+  }
+  c.restore();
+
+  // ---- outer frame: bar underline, edge rulers, bottom caption
+  c.save();
+  c.fillStyle = rgba('orange', 0.18); c.fillRect(0, BAR, LW, px);
+  // bottom margin caption
+  txt(c, 'NERV HQ  //  第一発令所  //  FIRST COMMAND POST', 146, 797.9, 5, rgba('orange', 0.5), { w: 600, track: 1 });
+  txt(c, 'MAGI  MELCHIOR·BALTHASAR·CASPER  //  ALL SYSTEMS NOMINAL  //  正常', 1268, 797.9, 5, rgba('orange', 0.45), { w: 600, track: 1, align: 'right' });
+  c.restore();
+
+  c.restore();
+
+  if (DEBUG) {
+    c.save(); c.scale(K, K);
+    for (const p of PANELS) {
+      c.strokeStyle = rgba('cyan', 0.9); c.lineWidth = 1; c.strokeRect(p.x, p.y, p.w, p.h);
+      c.fillStyle = 'rgba(0,200,255,0.10)'; c.fillRect(p.x, p.y, p.w, p.h);
+      txt(c, `${p.id}  ${p.x},${p.y} ${p.w}x${p.h}`, p.x + 6, p.y + 12, 8, rgba('cyan', 1), { w: 600, track: 1 });
+    }
+    c.fillStyle = 'rgba(0,255,106,0.25)'; c.fillRect(0, 0, LW, BAR);
+    c.restore();
+  }
+}
+run(draw, { bloom: 0.35, threshold: 0.7, vignette: 0.3, scan: 0.22, grain: 0.03 });
+</script></body></html>

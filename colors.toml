@@ -1,0 +1,39 @@
+# Evangelion / NERV HQ command terminal.
+# Terminal-black ground, command-orange HUD, EMERGENCY red, phosphor green
+# scopes, PATTERN BLUE cyan, Unit-01 purple. Warm bone only for the brightest type.
+
+mode = "dark"
+
+accent = "#ff7a00"            # command orange (primary HUD colour)
+selection = "#4a3218"         # graphite
+muted = "#9c6a2e"             # ash
+
+background = "#050403"        # ink
+dark_background = "#030201"
+darker_background = "#000000"
+lighter_background = "#120c06" # ink2 (raised panel)
+
+foreground = "#ffbf73"        # warm orange-bone: readable HUD text
+dark_foreground = "#7a5528"
+light_foreground = "#ffd6a0"
+bright_foreground = "#ffe9c8" # bone
+
+red = "#ff1a1a"               # EMERGENCY
+yellow = "#ffb000"            # amber
+orange = "#ff7a00"            # command orange
+green = "#39ff6a"             # phosphor green (MAGI approve)
+cyan = "#00c8ff"              # PATTERN BLUE
+blue = "#4c8dff"
+magenta = "#9a5cff"           # Unit-01 purple (lifted for contrast on ink)
+brown = "#9c6a2e"             # ash
+
+bright_red = "#ff5a4a"
+bright_yellow = "#ffd060"
+bright_green = "#8cffa8"
+bright_cyan = "#66e0ff"
+bright_blue = "#80b0ff"
+bright_magenta = "#b98cff"
+
+# Active window: command orange raking into amber. Inactive: graphite.
+hyprland_active_border = "rgba(ff7a00ff) rgba(ff7a00ff) rgba(ffb000ff) 45deg"
+hyprland_inactive_border = "rgba(4a3218cc)"

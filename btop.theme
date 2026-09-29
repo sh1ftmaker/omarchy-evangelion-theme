@@ -1,0 +1,59 @@
+# Evangelion / NERV HQ: MAGI system monitor.
+# Terminal black, command-orange frames, phosphor-green scopes, EMERGENCY red peaks.
+
+theme[main_bg]=""
+theme[main_fg]="#ffbf73"
+theme[title]="#ffe9c8"
+theme[hi_fg]="#ff1a1a"
+theme[selected_bg]="#4a3218"
+theme[selected_fg]="#ffe9c8"
+theme[inactive_fg]="#4a3218"
+theme[graph_text]="#9c6a2e"
+theme[meter_bg]="#1e1409"
+theme[proc_misc]="#39ff6a"
+
+theme[cpu_box]="#ff7a00"
+theme[mem_box]="#ff7a00"
+theme[net_box]="#ff7a00"
+theme[proc_box]="#ff7a00"
+theme[div_line]="#4a3218"
+
+# Core temperature: amber -> orange -> red alert
+theme[temp_start]="#ffb000"
+theme[temp_mid]="#ff7a00"
+theme[temp_end]="#ff1a1a"
+
+# CPU load: phosphor green scope -> amber -> emergency red
+theme[cpu_start]="#39ff6a"
+theme[cpu_mid]="#ffb000"
+theme[cpu_end]="#ff1a1a"
+
+# Free / available: green phosphor
+theme[free_start]="#0f5a24"
+theme[free_mid]="#22b04a"
+theme[free_end]="#39ff6a"
+
+theme[cached_start]="#6a3a0a"
+theme[cached_mid]="#b05a00"
+theme[cached_end]="#ff7a00"
+
+theme[available_start]="#0f5a24"
+theme[available_mid]="#22b04a"
+theme[available_end]="#39ff6a"
+
+theme[used_start]="#ff7a00"
+theme[used_mid]="#ff4a0a"
+theme[used_end]="#ff1a1a"
+
+# Network: PATTERN BLUE in, orange out
+theme[download_start]="#004a66"
+theme[download_mid]="#0090c0"
+theme[download_end]="#00c8ff"
+
+theme[upload_start]="#6a3a0a"
+theme[upload_mid]="#b05a00"
+theme[upload_end]="#ff7a00"
+
+theme[process_start]="#ffb000"
+theme[process_mid]="#ff7a00"
+theme[process_end]="#ff1a1a"

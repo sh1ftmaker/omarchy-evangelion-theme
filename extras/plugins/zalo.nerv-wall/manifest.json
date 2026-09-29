@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "zalo.nerv-wall",
+  "name": "NERV Desktop Wall",
+  "version": "1.0.0",
+  "author": "zalo",
+  "description": "Hosts the six NERV desktop-wall panels (MAGI, psychograph, activity limit, SEELE, positron rifle, tactical) in ONE click-through full-screen WlrLayer.Bottom window per screen, with one shared covered check and one vsync frame clock. Layout from ~/.config/omarchy/nerv-wall.json.",
+  "kinds": ["panel"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "panel": "Wall.qml"
+  }
+}

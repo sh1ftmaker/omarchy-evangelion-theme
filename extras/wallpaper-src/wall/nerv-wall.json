@@ -1,0 +1,14 @@
+{
+  "_comment": "NERV desktop wall layout. Rects are in a 1280x800 reference grid (logical px, bar = top 26px) and are scaled by screen.width/1280, screen.height/800. Each zalo.nerv-* desktop panel reads its own entry; edit + save to re-pack (panels watch this file).",
+  "reference": { "width": 1280, "height": 800 },
+  "gutter": 8,
+  "fillAlpha": 0.82,
+  "panels": {
+    "zalo.nerv-magi-desk":    { "x": 8,   "y": 34,  "w": 520, "h": 422 },
+    "zalo.nerv-psychograph":  { "x": 8,   "y": 464, "w": 520, "h": 328 },
+    "zalo.nerv-power-desk":   { "x": 536, "y": 34,  "w": 368, "h": 240 },
+    "zalo.nerv-seele":        { "x": 536, "y": 282, "w": 368, "h": 250 },
+    "zalo.nerv-target":       { "x": 536, "y": 540, "w": 368, "h": 252 },
+    "zalo.nerv-tactical":     { "x": 912, "y": 34,  "w": 360, "h": 758 }
+  }
+}

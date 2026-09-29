@@ -1,0 +1,7 @@
+#!/bin/bash
+# battery-low hook: NERV "ACTIVITY LIMIT / 活動限界" alarm with the battery
+# percentage, only while the evangelion theme is active. $1 = percentage.
+level=${1:-}
+level=${level%%%}
+command -v nerv-alert >/dev/null 2>&1 || PATH="$HOME/.local/bin:$PATH"
+exec nerv-alert --if-theme activity-limit "INTERNAL BATTERY ${level:-LOW}% // 活動限界まで // CONNECT EXTERNAL POWER // 外部電源 接続せよ" "$level"

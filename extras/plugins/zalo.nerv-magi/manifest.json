@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "zalo.nerv-magi",
+  "name": "NERV MAGI",
+  "version": "1.0.0",
+  "author": "zalo",
+  "description": "The MAGI supercomputers as a live system monitor: MELCHIOR·1 (CPU), BALTHASAR·2 (memory), CASPER·3 (GPU) deliberate every refresh.",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "Widget.qml"
+  },
+  "barWidget": {
+    "displayName": "NERV MAGI",
+    "description": "Three MAGI load blocks in the bar; click for the MAGI deliberation panel, right-click for btop.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

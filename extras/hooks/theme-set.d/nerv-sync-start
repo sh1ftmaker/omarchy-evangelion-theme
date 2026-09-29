@@ -1,0 +1,7 @@
+#!/bin/bash
+# theme-set hook: switching to the evangelion theme plays the SYNCHRONIZATION
+# alarm once. $1 = theme slug.
+[[ ${1,,} == evangelion ]] || exit 0
+command -v nerv-alert >/dev/null 2>&1 || PATH="$HOME/.local/bin:$PATH"
+# Give the shell a moment to finish reloading the theme first.
+( sleep 1.5; nerv-alert --json '{"variant":"sync","sub":"NERV THEME ONLINE  //  A10 NERVE CONNECTION  //  UNIT-01","message":"SYNCHRONIZATION START // 同調開始 // PILOT NEURAL CONNECTION STABLE // 神経接続 正常 // WELCOME TO NERV"}' ) >/dev/null 2>&1 &

@@ -1,0 +1,28 @@
+[controls]
+# Terminal chrome: hairline orange frames on black, solid orange when selected.
+normal-color        = "#ff9a3c"
+normal-fill-alpha   = 0.03
+normal-border       = "#ff7a00"
+normal-border-width = 1
+normal-border-alpha = 0.45
+
+hover-cursor-color        = "#ffe9c8"
+hover-cursor-fill-alpha   = 0.14
+hover-cursor-border       = "#ffb000"
+hover-cursor-border-width = 1
+hover-cursor-border-alpha = 1.0
+
+focus-color        = "#ffe9c8"
+focus-fill-alpha   = 0.14
+focus-border       = "#ffb000"
+focus-border-width = 1
+focus-border-alpha = 1.0
+
+selected-color        = "#ffe9c8"
+selected-fill-alpha   = 0.30
+selected-border       = "#ff7a00"
+selected-border-width = 1
+selected-border-alpha = 1.0
+
+pressed-fill-alpha   = 0.45
+selection-fill-alpha = 0.40

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "zalo.nerv-workspaces",
+  "name": "NERV workspaces",
+  "version": "1.0.0",
+  "author": "zalo",
+  "description": "NERV-styled workspace switcher: chamfered cells with 7-segment numbers, kanji numeral tooltips, click to switch, scroll to cycle",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "NervWorkspaces.qml"
+  },
+  "barWidget": {
+    "displayName": "NERV workspaces",
+    "description": "Chamfered NERV workspace cells (active orange, occupied outline, urgent blinking red)",
+    "category": "Compositor",
+    "allowMultiple": false,
+    "defaultSection": "left",
+    "defaults": { "numerals": "seg", "minWorkspaces": 5 },
+    "schema": [
+      { "key": "numerals", "type": "enum", "label": "Numerals", "options": ["seg", "mono", "kanji"], "defaultValue": "seg", "description": "7-segment digits, IBM Plex Mono, or kanji numerals (壱 弐 参 …)" },
+      { "key": "minWorkspaces", "type": "integer", "label": "Always show workspaces", "min": 1, "max": 10, "step": 1, "defaultValue": 5 }
+    ]
+  }
+}

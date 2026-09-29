@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "id": "zalo.nerv-power",
+  "name": "NERV Internal Battery",
+  "version": "1.0.0",
+  "author": "zalo",
+  "description": "Evangelion activity-limit battery readout: 7-segment time-to-empty, umbilical (AC) state, power profiles",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "NervPower.qml" },
+  "barWidget": {
+    "displayName": "NERV Internal Battery",
+    "description": "内部電源 / 活動限界 — battery countdown with activity-limit panel",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": { "simulate": "Off", "showLabel": true },
+    "schema": [
+      { "key": "showLabel", "type": "boolean", "label": "Show 内部電源 / 外部電源 tab", "defaultValue": true },
+      { "key": "simulate", "type": "enum", "label": "Simulate state (visual test)", "options": ["Off", "Discharging", "Low", "Critical", "Depleted", "Charging", "Full"], "defaultValue": "Off", "description": "Override the real battery with a fake state to preview the alarm / umbilical looks. Also: quickshell ipc -p /usr/share/omarchy/shell call zalo.nerv-power simulate low" }
+    ]
+  }
+}
