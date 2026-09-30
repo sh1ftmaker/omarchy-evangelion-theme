@@ -7,7 +7,9 @@ import Quickshell.Hyprland
 // zalo.nerv-tactical — NERV desktop HUD (Evangelion theme).
 // A keep-loaded panel plugin that mounts one click-through layer-shell window per screen on
 // WlrLayer.Bottom: above the wallpaper (omarchy.background is WlrLayer.Background), below
-// every window. Data comes from collector.py (one JSON line / 3 s). Motion is vsync-locked
+// every window. Data comes from collector.py (one JSON line / 3 s): the radar plots nearby
+// Wi-Fi networks (NetworkManager's cached scan list; a real scan at most every 10 min) and the
+// associated network is the PATTERN BLUE contact. Motion is vsync-locked
 // (one FrameAnimation, time-based): the pre-rendered sweep wedge rotates, blip glow is
 // recomputed from the beam angle, meters/readouts ease toward the latest sample, the ticker
 // and hazard band scroll sub-pixel, and contacts glide (Behaviors) to new ranges. All of it
@@ -31,9 +33,10 @@ Item {
   // at slotRect inside its full-screen window (face gets sx / sy / dpr).
   property bool embedded: false
   property var wall: null
-  // demo: set by zalo.nerv-wall from nerv-wall.json "demo": true — identifying data (remote
-  // hosts/ports, SSID, interface, process names/PIDs, kernel log, mount paths) is replaced with
-  // plausible fakes in ingest(); rates, CPU, memory, temps stay live.
+  // demo: set by zalo.nerv-wall from nerv-wall.json "demo": true — identifying data (nearby
+  // networks, SSIDs, BSSIDs, channels, interface, timezone/location, process names/PIDs, kernel
+  // log, mount paths) is replaced with plausible fakes in ingest(); rates, CPU, memory, temps
+  // stay live. Toggling re-ingests the last raw sample so the swap is immediate.
   property bool demo: false
   signal frame(real frameTime, int currentFrame)
   readonly property bool wantFrames: animating
@@ -42,10 +45,20 @@ Item {
   readonly property Component face: faceComp
 
   // ------------------------------------------------------------------ live data
-  property var conns: []
+  // wifi: nets = blips (strongest first), angel = the associated network (merged with the
+  // `iw link` details: dbm, rxBit, txBit, freq), netCount/ssidCount/openCount = whole scan list
+  property var nets: []
   property var angel: null
-  property int total: 0
-  property int hosts: 0
+  property int netCount: 0
+  property int ssidCount: 0
+  property int openCount: 0
+  property real scanAt: 0          // epoch s of the last scan request (0 = never / no wifi)
+  property real scanEvery: 600
+  property string wifiDev: ""
+  // timezone (from the collector, re-read every 30 s so a change applies without a restart)
+  property string tzId: ""
+  property string tzAbbr: ""
+  property int tzOff: -new Date().getTimezoneOffset() * 60   // seconds east of UTC
   property real rx: 0
   property real tx: 0
   property string iface: ""
@@ -64,8 +77,8 @@ Item {
   property real uptimeAt: 0
   property real uptime: 0
 
-  // contacts keyed by ip so delegates persist across samples and can glide; entries that drop
-  // out are marked alive=false (fade out) and removed on the next sample.
+  // contacts keyed by BSSID so delegates persist across samples and can glide; entries that
+  // drop out are marked alive=false (fade out) and removed on the next sample.
   ListModel { id: contactModel }
   property alias contacts: contactModel
 
@@ -74,17 +87,19 @@ Item {
   property real txS: 0
   property real cpuS: 0
   property real memS: 0
-  property real angelRateS: 0
+  property real angelSigS: 0
   property real topPctS: 0
   property real tCpuS: 0
   property real tIgpuS: 0
   property real tDgpuS: 0
   property real tNvmeS: 0
   readonly property var easeKeys: [
-    ["rxS", "rx"], ["txS", "tx"], ["cpuS", "cpu"], ["memS", "mem"], ["angelRateS", "angelRate"],
+    ["rxS", "rx"], ["txS", "tx"], ["cpuS", "cpu"], ["memS", "mem"], ["angelSigS", "angelSig"],
     ["topPctS", "topPct"], ["tCpuS", "tCpu"], ["tIgpuS", "tIgpu"], ["tDgpuS", "tDgpu"], ["tNvmeS", "tNvme"]
   ]
-  readonly property real angelRate: angel ? angel.rate : 0
+  // link quality 0..100 (from the associated BSS's live dBm when known, else NM's %)
+  readonly property real angelSig: !angel ? 0 : angel.dbm !== undefined ? dbmPct(angel.dbm) : (angel.sig || 0)
+  function dbmPct(d) { return Math.max(0, Math.min(100, 100 - (-40 - d) * 100 / 60)) }
   readonly property real topPct: topProc.pct || 0
   readonly property real tCpu: temps.cpu || 0
   readonly property real tIgpu: temps.igpu || 0
@@ -103,13 +118,28 @@ Item {
   property int sec: 0
   property bool blinkOn: true
   property var now: new Date()
-  readonly property string tzName: {
-    var m = -now.getTimezoneOffset(), s = m >= 0 ? "+" : "-"
+  // wall time in the zone: read with the getUTC*() accessors (independent of Qt's cached TZ)
+  readonly property var zoneNow: new Date(now.getTime() + tzOff * 1000)
+  readonly property string tzOffText: {
+    var m = Math.round(tzOff / 60), s = m >= 0 ? "+" : "-"
     m = Math.abs(m)
     return "UTC" + s + (m / 60 < 10 ? "0" : "") + Math.floor(m / 60) + ":" + (m % 60 < 10 ? "0" : "") + (m % 60)
   }
+  // "America/Argentina/Buenos_Aires" -> city "BUENOS AIRES", region "AMERICA"
+  readonly property string tzCity: {
+    var p = tzId.split("/")
+    return (p[p.length - 1] || "LOCAL").replace(/_/g, " ").toUpperCase()
+  }
+  readonly property string tzRegion: {
+    var p = tzId.split("/")
+    return p.length > 1 && p[0] !== "Etc" ? p[0].toUpperCase() : "UNIVERSAL"
+  }
+  // scan age / countdown in whole seconds (ticks with `now`)
+  readonly property int scanAge: scanAt > 0 ? Math.max(0, Math.floor(now.getTime() / 1000 - scanAt)) : -1
+  readonly property int scanNext: scanAt > 0 ? Math.max(0, Math.ceil(scanAt + scanEvery - now.getTime() / 1000)) : -1
 
-  readonly property bool angelHot: angel !== null && angel.rate > 262144
+  // weak link (<= -78 dBm) turns the target box / hazard band red
+  readonly property bool angelHot: angel !== null && angel.dbm !== undefined && angel.dbm <= -78
   readonly property bool anyHot: (temps.cpu || 0) >= 90 || (temps.igpu || 0) >= 90 || (temps.dgpu || 0) >= 85 || (temps.nvme || 0) >= 70
   readonly property bool diskHot: {
     for (var i = 0; i < disks.length; i++) if (disks[i].pct >= 90) return true
@@ -121,8 +151,8 @@ Item {
     if (topProc.name) parts.push("TOP PROCESS " + topProc.name.toUpperCase() + " [" + topProc.pid + "] " + (topProc.pct || 0).toFixed(1) + "% CPU")
     parts.push("LOAD " + load.join(" / "))
     parts.push("MEM " + mem.toFixed(0) + "%")
-    parts.push("TCP CONTACTS " + total + " FROM " + hosts + " HOSTS")
-    if (angel) parts.push("PATTERN BLUE " + angel.ip + " — 使徒接近")
+    parts.push("WIFI NETWORKS " + netCount + " / " + ssidCount + " SSIDS / " + openCount + " OPEN")
+    if (angel) parts.push("PATTERN BLUE " + (angel.ssid || "HIDDEN") + " — 接続中")
     for (var i = kmsg.length - 1; i >= 0; i--) parts.push("KERNEL: " + kmsg[i])
     parts.push("第3新東京市 迎撃システム 稼働中")
     return parts.join("   //   ") + "   //   "
@@ -140,15 +170,28 @@ Item {
     return s
   }
 
+  property string lastLine: ""
+  onDemoChanged: if (lastLine) ingest(lastLine)
   function ingest(line) {
     var d
     try { d = JSON.parse(line) } catch (e) { return }
+    lastLine = line
     if (demo) d = demoData(d)
-    conns = d.conns || []
-    angel = conns.length > 0 ? conns[0] : null
-    syncContacts(conns)
-    total = d.total || 0
-    hosts = d.hosts || 0
+    var w = d.wifi || {}
+    nets = w.nets || []
+    angel = w.link || null
+    syncContacts(nets)
+    netCount = w.count || 0
+    ssidCount = w.ssids || 0
+    openCount = w.open || 0
+    scanAt = w.scanAt || 0
+    scanEvery = w.scanEvery || 600
+    wifiDev = w.dev || ""
+    if (d.tz) {
+      tzId = d.tz.name || ""
+      tzAbbr = d.tz.abbr || ""
+      tzOff = d.tz.off || 0
+    }
     rx = d.rx || 0
     tx = d.tx || 0
     iface = d.iface || ""
@@ -170,11 +213,18 @@ Item {
   }
 
   // ------------------------------------------------------------------ demo (privacy-safe screenshots)
-  // RFC 5737 documentation addresses only; rates wander with time so blips stay alive.
-  readonly property var demoHosts: [
-    ["203.0.113.17", "443", 0.95], ["198.51.100.42", "8443", 0.6], ["192.0.2.33", "22", 0.35],
-    ["203.0.113.88", "993", 0.25], ["198.51.100.7", "5222", 0.18], ["192.0.2.140", "443", 0.12],
-    ["203.0.113.201", "3478", 0.08], ["198.51.100.163", "443", 0.05], ["192.0.2.66", "853", 0.03]
+  // Fictional networks only (no real SSID/BSSID/channel survives from the collector sample);
+  // signals wander with time so blips drift. Scan timing and rates stay live (not identifying).
+  //                   ssid             sec     band   ch  base %
+  readonly property var demoNets: [
+    ["NERV-HQ",        "PSK",  "5G",   36, 82], ["MAGI-01",       "EAP",  "5G",   36, 74],
+    ["MAGI-02",        "EAP",  "2.4G",  1, 66], ["GEOFRONT-5G",   "SAE",  "5G",  149, 71],
+    ["SEELE",          "EAP",  "6G",   37, 28], ["UN-FORCES",     "PSK",  "2.4G",  6, 44],
+    ["JSSDF-TAC",      "EAP",  "5G",  100, 36], ["LCL-PLANT",     "PSK",  "2.4G", 11, 52],
+    ["TOKYO3-PUBLIC",  "OPEN", "2.4G",  6, 58], ["HAKONE-CAFE",   "OPEN", "5G",   44, 40],
+    ["KATSURAGI",      "SAE",  "5G",  157, 48], ["EVA-CAGE-7",    "PSK",  "2.4G", 11, 30],
+    ["TERMINAL-DOGMA", "EAP",  "6G",   69, 22], ["",              "PSK",  "5G",  149, 34],
+    ["",               "EAP",  "2.4G",  1, 26]
   ]
   readonly property var demoProcs: ["magi", "lcl-pump", "entry-plug", "a10-nerve", "hyprland"]
   readonly property var demoKmsg: [
@@ -182,19 +232,27 @@ Item {
     "LCL PRESSURE 1.02 ATM", "A10 NERVE LINK ESTABLISHED", "TERMINAL DOGMA SEAL INTACT"
   ]
   function demoData(d) {
-    var t = Date.now() / 1000, conns = []
-    for (var i = 0; i < demoHosts.length; i++) {
-      var h = demoHosts[i], w = 0.6 + 0.4 * Math.sin(t / (7 + i * 3) + i * 1.7)
-      var rate = Math.round(h[2] * w * 180000)
-      conns.push({ ip: h[0], port: h[1], brg: (i * 137.5 + 23) % 360, rtt: 8 + i * 6.5 + 3 * Math.sin(t / 5 + i),
-                   rx: rate * 40, tx: rate * 9, rate: rate, n: 1 + (i * 5) % 4 })
+    var t = Date.now() / 1000, nets = [], open = 0, ssids = {}
+    for (var i = 0; i < demoNets.length; i++) {
+      var e = demoNets[i]
+      var sig = Math.round(Math.max(8, Math.min(98, e[4] + 7 * Math.sin(t / (11 + i * 4) + i * 1.9))))
+      var freq = e[2] === "2.4G" ? 2407 + 5 * e[3] : e[2] === "5G" ? 5000 + 5 * e[3] : 5950 + 5 * e[3]
+      nets.push({ id: "demo-" + i, ssid: e[0], sec: e[1], band: e[2], ch: e[3], freq: freq, sig: sig,
+                  dbm: Math.round(-40 - (100 - sig) * 0.6), brg: (i * 137.5 + 23) % 360, cur: i === 0 })
+      if (e[1] === "OPEN") open++
+      if (e[0]) ssids[e[0]] = 1
     }
-    conns.sort(function (a, b) { return b.rate - a.rate })
-    d.conns = conns
-    d.total = conns.length + 5
-    d.hosts = conns.length
+    nets.sort(function (a, b) { return (b.cur - a.cur) || (b.sig - a.sig) })
+    var hq = nets[0], w = d.wifi || {}
+    d.wifi = {
+      dev: "wlan0", nets: nets, count: nets.length, ssids: Object.keys(ssids).length, open: open,
+      scanAt: w.scanAt || 0, scanEvery: w.scanEvery || 600,
+      link: { id: hq.id, ssid: hq.ssid, sec: hq.sec, band: hq.band, ch: hq.ch, freq: hq.freq, sig: hq.sig,
+              brg: hq.brg, cur: true, dbm: Math.round(-49 + 3 * Math.sin(t / 9)), rxBit: 866.7, txBit: 780.0 }
+    }
+    d.tz = { name: "Asia/TOKYO-3", abbr: "JST", off: 32400 }
     d.iface = "wlan0"
-    d.ssid = "NERV-HQ"
+    d.ssid = hq.ssid
     var step = Math.floor(t / 30)
     d.top = { name: demoProcs[step % demoProcs.length], pid: String(1000 + (step * 7919) % 30000),
               pct: d.top && d.top.pct ? d.top.pct : 0 }
@@ -214,22 +272,23 @@ Item {
   }
 
   function syncContacts(list) {
-    var byIp = {}
-    for (var i = 0; i < list.length; i++) byIp[list[i].ip] = list[i]
+    var byId = {}
+    for (var i = 0; i < list.length; i++) byId[list[i].id] = list[i]
     // drop contacts that already faded out, mark newly-missing ones as fading
     for (var j = contactModel.count - 1; j >= 0; j--) {
       var e = contactModel.get(j)
-      if (byIp[e.ip] === undefined) {
+      if (byId[e.nid] === undefined) {
         if (!e.alive || !animating) contactModel.remove(j)
-        else contactModel.setProperty(j, "alive", false)
+        else { contactModel.setProperty(j, "alive", false); contactModel.setProperty(j, "rank", 999) }
       }
     }
     var at = {}
-    for (var k = 0; k < contactModel.count; k++) at[contactModel.get(k).ip] = k
+    for (var k = 0; k < contactModel.count; k++) at[contactModel.get(k).nid] = k
     for (var n = 0; n < list.length; n++) {
       var c = list[n]
-      var row = { ip: c.ip, port: String(c.port), brg: c.brg || 0, rtt: c.rtt || 0, bytes: (c.rx || 0) + (c.tx || 0), alive: true }
-      if (at[c.ip] !== undefined) contactModel.set(at[c.ip], row)
+      var row = { nid: String(c.id), ssid: String(c.ssid || ""), sec: String(c.sec || ""), band: String(c.band || ""),
+                  ch: Number(c.ch || 0), sig: Number(c.sig || 0), brg: Number(c.brg || 0), rank: n, alive: true }
+      if (at[c.id] !== undefined) contactModel.set(at[c.id], row)
       else contactModel.append(row)
     }
   }
@@ -294,7 +353,12 @@ Item {
     running: root.opened
     command: ["python3", decodeURIComponent(Qt.resolvedUrl("collector.py").toString().replace(/^file:\/\//, ""))]
     stdout: SplitParser { onRead: data => root.ingest(data) }
-    stderr: SplitParser { onRead: data => console.warn("nerv-tactical collector:", data) }
+    stderr: SplitParser {
+      onRead: data => {
+        if (data.indexOf("[info] ") === 0) console.info("nerv-tactical collector:", data.slice(7))
+        else console.warn("nerv-tactical collector:", data)
+      }
+    }
     onExited: (code, status) => { if (root.opened) respawn.restart() }
   }
   Timer { id: respawn; interval: 5000; onTriggered: if (root.opened && !feed.running) feed.running = true }

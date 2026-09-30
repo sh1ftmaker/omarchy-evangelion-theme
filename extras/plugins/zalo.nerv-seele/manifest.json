@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "zalo.nerv-seele",
-  "name": "NERV SEELE Council",
+  "name": "NERV Processes",
   "version": "1.1.0",
   "author": "zalo",
-  "description": "NERV desktop wall panel: SOUND ONLY / 人類補完委員会. The top 12 processes seated as SEELE monoliths, lit by their live CPU; the hungriest one has the floor.",
+  "description": "NERV desktop wall panel: PROCESSES / プロセス監視. The top 12 processes by CPU as SEELE monoliths (slot, PID, name, CPU meter); the top one is detailed in the footer with its CPU history and a plain-language LOG.",
   "kinds": ["panel"],
   "keepLoaded": true,
   "entryPoints": {

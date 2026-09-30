@@ -48,8 +48,20 @@ hl.config({
     dim_inactive = true,
     dim_strength = 0.12,
 
+    -- Glass: only windows that are actually translucent (the terminal) get blurred,
+    -- so the orange HUD and wallpaper read through as a dark frosted panel.
     blur = {
-      enabled = false,
+      enabled = true,
+      size = 7,
+      passes = 3,
+      new_optimizations = true,
+      ignore_opacity = true,
+      noise = 0.02,
+      contrast = 1.0,
+      brightness = 0.75,
+      vibrancy = 0.25,
+      vibrancy_darkness = 0.2,
+      popups = false,
     },
 
     -- Faint CRT bloom around the live panel.

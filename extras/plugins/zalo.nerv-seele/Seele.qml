@@ -4,12 +4,12 @@ import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Hyprland
 
-// zalo.nerv-seele: SOUND ONLY / 人類補完委員会. NERV desktop-wall panel.
-// The 12 hungriest processes sit on the council as SEELE monoliths; each slab's red text, edge
-// glow and voice meter follow that process's live CPU (from /proc jiffy deltas, council.py).
-// Seats are sticky (a member keeps its number until it exits or is clearly out-consumed) and
-// the member with the most CPU "has the floor": bracketed, lit, its CPU history drawn as a
-// voice print. Rect comes from ~/.config/omarchy/nerv-wall.json (entry "zalo.nerv-seele").
+// zalo.nerv-seele: PROCESSES / プロセス監視 — a process monitor dressed as the SEELE council.
+// The 12 hungriest processes each get a slot (a SEELE monolith) showing slot number, PID and
+// process name; each slab's red text, edge glow and meter follow that process's live CPU (from
+// /proc jiffy deltas, council.py). Slots are sticky (a process keeps its slot until it exits or
+// is clearly out-consumed) and the top-CPU process is bracketed, lit, and its CPU history drawn
+// as a scope trace, with name/PID/CPU/RSS/threads in the footer and a plain-language LOG. Rect comes from ~/.config/omarchy/nerv-wall.json (entry "zalo.nerv-seele").
 // Layer Bottom (above the wallpaper, below windows), click-through, no focus, no exclusive zone.
 // Motion runs at the display refresh rate (one vsync-locked FrameAnimation clock `t`, plus
 // NumberAnimations for eased levels / cross-fades) while data is sampled every 2 s; values
@@ -31,7 +31,7 @@ Item {
   // embedded: zalo.nerv-wall owns the window, the covered check and the one frame clock.
   property bool embedded: false
   property var wall: null
-  // demo: set by zalo.nerv-wall from nerv-wall.json "demo": true — the council is a fixed fake
+  // demo: set by zalo.nerv-wall from nerv-wall.json "demo": true — the 12 slots hold a fixed fake
   // roster with synthetic, wandering CPU (no real process names / PIDs); totals stay live.
   property bool demo: false
   onDemoChanged: { hasData = false; demoSpeaker = -1 }
@@ -124,8 +124,9 @@ Item {
     if (demoSpeaker < 0 || out[best].cpu > out[demoSpeaker].cpu * 1.3 + 0.8) demoSpeaker = best
     var hh = new Date(), stamp = two(hh.getHours()) + ":" + two(hh.getMinutes())
     for (var k = 0; k < 4; k++) {
-      var m = (Math.floor(t / 20) + k) % demoRoster.length
-      log.push(stamp + " [" + two(m + 1) + "] " + demoRoster[m][0].toUpperCase() + (k % 2 ? " 着席 SEATED" : " 発言中 HAS THE FLOOR"))
+      var m = (Math.floor(t / 20) + k) % demoRoster.length, nm = demoRoster[m][0]
+      log.push(stamp + " " + [nm + " STARTED → slot " + two(m + 1), "slot " + two(m + 1) + " → " + nm,
+                              "TOP CPU → " + nm, "slot " + two(m + 1) + ": " + demoRoster[(m + 5) % 12][0] + " → " + nm][k])
     }
     var hist = []
     for (var h = 63; h >= 0; h--) hist.push(Math.round(demoCpu(demoSpeaker, t - h * 2) * 10) / 10)
@@ -144,12 +145,12 @@ Item {
     return Math.round(b / 1024) + " KiB"
   }
 
+  // LOG ticker line (newest event first)
   readonly property string minutes: {
     var parts = []
-    if (spk) parts.push("MEMBER " + two(speaker + 1) + " [" + spk.name.toUpperCase() + "] 発言中 SPEAKING … " + spk.now.toFixed(1) + "% CPU")
+    if (spk) parts.push("TOP " + spk.name + " " + spk.now.toFixed(1) + "% CPU · PID " + spk.pid + " · slot " + two(speaker + 1))
     for (var i = log.length - 1; i >= 0; i--) parts.push(log[i])
-    parts.push("COUNCIL " + procs + " PROC / " + threads + " THR · LOAD " + machine.toFixed(0) + "%")
-    parts.push("人類補完計画 · 予定通りだ ALL IS ACCORDING TO THE SCENARIO")
+    parts.push("SYSTEM " + procs + " PROC · " + threads + " THR · LOAD " + machine.toFixed(0) + "% · " + ncpu + " CPU")
     return parts.join("   ///   ") + "   ///   "
   }
 

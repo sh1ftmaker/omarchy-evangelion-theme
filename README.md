@@ -28,19 +28,31 @@ A click-through layer between the wallpaper and your windows holds six live pane
 | Panel | Signal |
 |---|---|
 | **MAGI SYSTEM** | CPU, memory and GPU processors voting, with a tally and a scrolling system log |
-| **PSYCHOGRAPH / HARMONICS** | Six phosphor scope channels (CPU, cores, memory, network, disk) plus a real-time spectrum of whatever audio is playing |
+| **PSYCHOGRAPH / HARMONICS** | Six phosphor scope traces, each plotting its real metric with a visible scale: CPU %, GPU %, memory %, network ↓, network ↑, and internet latency (a TCP connect to 1.1.1.1 every 8 s, OFFLINE when it fails). Below them, a per-core strip, disk throughput and a real-time spectrum of whatever audio is playing |
 | **ACTIVITY LIMIT** | Battery countdown, umbilical (AC) state, drain rate and health |
-| **SOUND ONLY** | The top 12 processes as SEELE monoliths; the busiest one "speaks" through a GPU-shaded voice oscilloscope |
-| **POSITRON RIFLE** | A targeting scope locked onto your focused window: PID, CPU, memory and time on target |
-| **TACTICAL** | Radar of your TCP connections, with the busiest host marked as the Angel, plus storage, temperatures, uptime and a Tokyo-3 clock |
+| **PROCESSES** | The top 12 processes by CPU as SEELE monoliths, with name and PID. Seats are stable, the top process gets a GPU-shaded CPU-history oscilloscope, and a plain-language log records processes starting, exiting and changing slots |
+| **POSITRON RIFLE** | A targeting scope locked onto your focused window. **Target telemetry** is summed over the window's whole process tree: disk read/write rate, CPU and CPU time, process age, threads and open files. Real window geometry: offset, bearing and distance from screen centre, and screen coverage |
+| **TACTICAL** | Radar of **nearby WiFi networks**: bearing per access point, distance = signal strength, diamonds for secured and circles for open, labelled with security, band and channel. The connected network is the cyan PATTERN BLUE contact, with dBm, channel, link rate and traffic. A real scan runs at most every 10 minutes and results are cached in between. Below the radar: storage, temperatures, uptime, and a **local-time clock titled with your timezone's city** |
+
+| | |
+|---|---|
+| ![](docs/screenshots/magi.png) | ![](docs/screenshots/radar.png) |
+| ![](docs/screenshots/processes.png) | ![](docs/screenshots/target.png) |
 
 - **Motion:** everything animates at the display refresh rate, while data is sampled every 1–3 s and eased in between.
-- **Pausing:** the wall stops rendering whenever the current workspace has windows. It costs about 2% of one core then, and about 35–40% of one core while you're looking at an empty desktop.
+- **Pausing:** when the current workspace has windows, the animation stops and the wall stays frozen behind them, redrawn only on its 1–3 s data ticks, so it shows through glass terminals. That costs about 2% of one core; an empty desktop with the wall animating costs about 35–40%.
 - **Glow:** a port of **[SE Natural Bloom & Dirty Lens](https://github.com/sonicether/SE-Natural-Bloom-Dirty-Lens)**. It uses 13 GPU passes, only one of them at full resolution. A brightness boost makes orange strokes and 7-segment digits bloom while dim lines stay crisp, and it adds a dirty-lens glare plus the video's carmine halation.
 
 | Bloom off | Bloom on |
 |---|---|
 | ![](docs/screenshots/bloom-off.png) | ![](docs/screenshots/bloom-on.png) |
+
+### Glass terminal with phosphor glow
+![Glass terminal](docs/screenshots/glass-terminal.png)
+
+- **Glow:** the theme's `ghostty.conf` adds `ghostty-bloom.glsl`, a single-pass Ghostty shader. It gives every glyph a tight halo and a warm wide haze, weighted by brightness so bold colours glow hottest and dim comments stay crisp. It covers everything that runs in the terminal (Neovim, btop, lazygit…) and only runs when the terminal redraws.
+- **Glass:** the terminal background is 62% opaque. The theme turns on Hyprland blur, which only affects translucent windows, so the frozen wall shows through as blurred orange, green and cyan light.
+- **Theme-scoped:** switching themes regenerates `ghostty.conf` without the shader and opacity.
 
 ### EMERGENCY alerts
 `nerv-alert` plays a full-screen, click-through NERV alarm with four variants: `emergency`, `pattern-blue`, `activity-limit` and `sync`.
@@ -72,7 +84,7 @@ The `nerv-mode` theme-set hook turns the NERV widgets and wall on under this the
 
 **Uninstall:** switch to another theme, then run `./uninstall.sh` (add `--all` to also remove the theme folder, fonts and layout).
 
-Tested on Omarchy with Hyprland (Lua config), Quickshell 0.3.1 and Qt 6.11. The audio spectrum needs PipeWire/PulseAudio (`parec`, `pactl`); everything else reads `/proc`, `/sys`, UPower and Hyprland directly. Python 3 is used for three small helper processes. No other dependencies.
+Tested on Omarchy with Hyprland (Lua config), Quickshell 0.3.1 and Qt 6.11. The audio spectrum needs PipeWire/PulseAudio (`parec`, `pactl`). The WiFi radar uses NetworkManager (`nmcli`) and `iw`, and falls back gracefully without them. Everything else reads `/proc`, `/sys`, UPower and Hyprland directly. Python 3 is used for three small helper processes. No other dependencies.
 
 ## Configuration
 
@@ -83,8 +95,9 @@ Tested on Omarchy with Hyprland (Lua config), Quickshell 0.3.1 and Qt 6.11. The 
   "reference": { "width": 1280, "height": 800 },   // rects below are in this grid, scaled to your screen
   "fillAlpha": 0.82,                                // panel background opacity
   "bloom": true,
-  "bloomParams": { "intensity": 0.44, "scatter": 0.35, "lensDirtIntensity": 0.2, "hdrBoost": 8, "halation": 0.2 },
-  "demo": false,                                    // synthetic data for screenshots
+  "bloomParams": { "intensity": 0.88, "scatter": 0.35, "lensDirtIntensity": 0.2, "hdrBoost": 8, "halation": 0.2 },
+  "behindWindows": true,                            // keep the wall drawn (frozen) behind windows, for glass
+  "demo": false,                                    // synthetic data for screenshots: fake WiFi, processes, target, Tokyo-3 time
   "panels": { "zalo.nerv-magi-desk": { "x": 8, "y": 34, "w": 520, "h": 422 }, "...": {} }
 }
 ```
@@ -92,6 +105,8 @@ Tested on Omarchy with Hyprland (Lua config), Quickshell 0.3.1 and Qt 6.11. The 
 - **Glow:** `intensity` controls the glow strength, `scatter` makes it tighter or a wider haze, and `hdrBoost` sets how strongly bright colours stand out.
 - **Moving panels:** move or resize a rect and save; the panels re-pack immediately. The `0-control-wall.png` backdrop is drawn to the default layout. Re-render it from `extras/wallpaper-src/wall/control.html` if you change the layout.
 - **Show or hide panels:** `omarchy-shell nerv-wall toggle|status` for the whole wall, `omarchy-shell nerv-<panel> toggle` for one panel (`nerv-magi-desk`, `nerv-power-desk`, `nerv-seele`, `nerv-target`, `nerv-psychograph`, `nerv-tactical`).
+- **Behind windows:** set `"behindWindows": false` to drop the wall entirely while windows cover it. That's slightly cheaper when every window is opaque.
+- **Terminal:** set glass opacity with `background-opacity` in the theme's `ghostty.conf`, and glow strength with `TIGHT_GAIN` / `WIDE_GAIN` in `ghostty-bloom.glsl`. Then run `omarchy theme set evangelion && omarchy restart terminal`.
 - **Fonts:** the shell's own font is system-wide. `omarchy font set "IBM Plex Mono"` completes the look.
 
 ## Repository layout

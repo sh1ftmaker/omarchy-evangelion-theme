@@ -1,15 +1,15 @@
 import QtQuick
 
-// The council chamber: frame, the arc of 12 monoliths over a faint floor, and the footer
-// (speaker dossier, voice print, minutes ticker). Laid out in design px (368x250 nominal).
+// PROCESSES / プロセス監視: frame, the arc of 12 process slots (SEELE monoliths) over a faint
+// floor, and the footer (top-process details, its CPU history trace, LOG ticker). Laid out in design px (368x250 nominal).
 SeeleFrame {
   id: c
 
   property var hud
 
-  title: "SOUND ONLY"
-  jp: "人類補完委員会"
-  code: "CLOSED SESSION // 非公開審議 · 12 VOICE CHANNELS"
+  title: "PROCESSES"
+  jp: "プロセス監視"
+  code: "TOP 12 BY CPU // 12 SLOTS · " + (hud.hasData ? hud.procs + " PROC · " + hud.threads + " THR" : "-- PROC · -- THR")
   fillAlpha: hud.fillAlpha
 
   // ------------------------------------------------------------- geometry
@@ -33,7 +33,7 @@ SeeleFrame {
   }
   function bottomOf(i) { var d = dOf(i); return floorY - rise * (1 - d * d) }
 
-  // ------------------------------------------------------------- header right: session clock
+  // ------------------------------------------------------------- header right: live clock
   Row {
     anchors.right: parent.right
     anchors.rightMargin: c.cut + 5
@@ -48,7 +48,7 @@ SeeleFrame {
     }
     Text {
       anchors.verticalCenter: parent.verticalCenter
-      text: "SESSION " + c.hud.clock
+      text: "LIVE " + c.hud.clock
       color: "#FF1A1A"
       font.family: "IBM Plex Mono"
       font.weight: Font.Bold
@@ -130,7 +130,7 @@ SeeleFrame {
     Rectangle { x: scan.bw - 1; width: 1; height: parent.height; color: "#FF1A1A"; opacity: 0.25 }
   }
 
-  // ------------------------------------------------------------- the council
+  // ------------------------------------------------------------- the 12 slots
   Repeater {
     model: 12
     Monolith {
@@ -158,7 +158,7 @@ SeeleFrame {
 
   Rectangle { x: 6; y: c.fy; width: c.width - 12; height: 1; color: "#FF1A1A"; opacity: 0.35 }
 
-  // speaker line
+  // top-process line
   Row {
     x: 9; y: c.fy + 4
     spacing: 5
@@ -170,7 +170,7 @@ SeeleFrame {
     }
     Text {
       anchors.verticalCenter: parent.verticalCenter
-      text: c.hud.spk ? "MEMBER " + c.hud.two(c.hud.speaker + 1) : "MEMBER --"
+      text: "TOP PROCESS"
       color: "#FF1A1A"
       font.family: "IBM Plex Mono"
       font.weight: Font.Bold
@@ -179,7 +179,7 @@ SeeleFrame {
     }
     Text {
       anchors.verticalCenter: parent.verticalCenter
-      text: "発言中 ／ SPEAKING"
+      text: "最大負荷 ／ SLOT " + (c.hud.spk ? c.hud.two(c.hud.speaker + 1) : "--")
       color: "#FF1A1A"
       opacity: 0.8
       font.family: "Noto Sans CJK JP"
@@ -188,7 +188,7 @@ SeeleFrame {
     }
   }
 
-  // voice print of the speaker's CPU history
+  // scope trace of the top process's CPU history
   VoiceTrace {
     x: 8; y: c.fy + 19
     width: c.width * 0.53
@@ -199,7 +199,7 @@ SeeleFrame {
   }
   Text {
     x: 9; y: c.fy + 52
-    text: "VOICE PRINT // 声紋 · " + c.hud.hist.length * 2 + "s"
+    text: "CPU HISTORY // 負荷履歴 · " + c.hud.hist.length * 2 + "s"
     color: "#FF1A1A"
     opacity: 0.45
     font.family: "IBM Plex Mono"
@@ -208,18 +208,18 @@ SeeleFrame {
     font.letterSpacing: 1.2
   }
 
-  // dossier
+  // top-process details
   Column {
     x: c.width * 0.53 + 18
     y: c.fy + 5
     spacing: 0
     Repeater {
       model: [
-        ["PROC", c.hud.spk ? c.hud.spk.name.toUpperCase() : "----", true],
+        ["NAME", c.hud.spk ? c.hud.spk.name.toUpperCase() : "----", true],
         ["PID", c.hud.spk ? String(c.hud.spk.pid) : "----", false],
+        ["CPU", c.hud.spk ? c.hud.spk.now.toFixed(1) + "%" : "----", false],
         ["RSS", c.hud.spk ? c.hud.fmtBytes(c.hud.spk.rss) : "----", false],
-        ["CPU", c.hud.spk ? c.hud.spk.now.toFixed(1) + "% · " + c.hud.spk.thr + " THR" : "----", false],
-        ["COUNCIL", c.hud.procs + " PROC · " + c.hud.threads + " THR", false]
+        ["THREADS", c.hud.spk ? String(c.hud.spk.thr) : "----", false]
       ]
       Row {
         required property var modelData
@@ -248,7 +248,7 @@ SeeleFrame {
     }
   }
 
-  // minutes ticker
+  // LOG ticker
   Item {
     id: tick
     x: 6; y: c.height - 17
@@ -259,7 +259,7 @@ SeeleFrame {
       id: tag
       x: 5
       anchors.verticalCenter: parent.verticalCenter
-      text: "議事録 MINUTES"
+      text: "記録 LOG"
       color: "#FF1A1A"
       font.family: "Noto Sans CJK JP"
       font.weight: Font.Bold
@@ -286,7 +286,7 @@ SeeleFrame {
         font.pixelSize: 7
         font.letterSpacing: 1
       }
-      // continuous sub-pixel scroll at 20 design px/s, time-based; latch the minutes once
+      // continuous sub-pixel scroll at 20 design px/s, time-based; latch the log line once
       // per pass so the line never jumps mid-scroll
       Connections {
         target: c.hud

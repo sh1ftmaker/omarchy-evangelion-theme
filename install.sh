@@ -21,7 +21,7 @@ say() { printf '\033[38;2;255;122;0m::\033[0m %s\n' "$*"; }
 say "Theme -> $THEME_DIR"
 mkdir -p "$THEME_DIR"
 for f in "$REPO"/*.toml "$REPO"/*.lua "$REPO"/btop.theme "$REPO"/chromium.theme "$REPO"/icons.theme \
-         "$REPO"/keyboard.rgb "$REPO"/unlock.png "$REPO"/preview.png; do
+         "$REPO"/keyboard.rgb "$REPO"/unlock.png "$REPO"/preview.png "$REPO"/ghostty.conf "$REPO"/*.glsl; do
   [[ -e $f ]] && cp "$f" "$THEME_DIR/"
 done
 rm -rf "$THEME_DIR/backgrounds"

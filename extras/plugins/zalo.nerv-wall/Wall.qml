@@ -125,6 +125,8 @@ Item {
   property bool bloomEnabled: false
   // optional overrides for NervBloom's tuning, e.g. "bloomParams": { "intensity": 0.18 }
   property var bloomParams: ({})
+  // keep drawing (frozen) while windows cover the desktop, for translucent windows
+  property bool behindWindows: true
   // "demo": true in nerv-wall.json → panels swap identifying data (hosts, IPs, SSID, process
   // names, PIDs, window titles) for plausible fakes, for publishable screenshots. Default off.
   property bool demo: false
@@ -138,6 +140,7 @@ Item {
         var j = JSON.parse(text())
         wall.bloomEnabled = j.bloom === true
         wall.bloomParams = j.bloomParams || {}
+        wall.behindWindows = j.behindWindows !== false
         wall.demo = j.demo === true
       } catch (e) {}
     }
@@ -168,9 +171,10 @@ Item {
       Item {
         id: wallContent
         anchors.fill: parent
-        // covered by windows: drop the subtree from the scene so data ticks (helpers keep
-        // sampling slowly) don't re-render a full-screen surface nobody can see
-        visible: wall.desktopVisible
+        // covered by windows: by default the wall stays drawn (frozen, redrawn only on slow data
+        // ticks) so it shows through translucent "glass" terminals; with "behindWindows": false it
+        // drops out of the scene entirely, which is cheapest when every window is opaque
+        visible: wall.desktopVisible || (wall.opened && wall.behindWindows)
 
         Repeater {
           model: wall.panels
@@ -203,8 +207,9 @@ Item {
       Loader {
         id: bloomLoader
         anchors.fill: parent
-        // unloaded while covered: frees the chain's textures and costs nothing
-        active: wall.bloomEnabled && wall.desktopVisible
+        // follows the wall: stays loaded behind glass windows (re-renders only when content
+        // changes), unloaded when the wall itself is dropped
+        active: wall.bloomEnabled && wallContent.visible
         source: Qt.resolvedUrl("bloom/NervBloom.qml")
         onLoaded: {
           item.source = wallContent

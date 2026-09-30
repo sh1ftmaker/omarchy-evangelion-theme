@@ -8,12 +8,13 @@
   "fillAlpha": 0.82,
   "bloom": true,
   "bloomParams": {
-    "intensity": 0.44,
+    "intensity": 0.88,
     "scatter": 0.35,
     "lensDirtIntensity": 0.2,
     "hdrBoost": 8,
     "halation": 0.2
   },
+  "behindWindows": true,
   "demo": false,
   "panels": {
     "zalo.nerv-magi-desk": {

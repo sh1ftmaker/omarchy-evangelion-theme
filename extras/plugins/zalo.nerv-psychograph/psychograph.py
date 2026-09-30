@@ -2,8 +2,14 @@
 """NERV psychograph helper: system stats + system-audio spectrum on stdout.
 
 Line protocol (one line per event, space separated):
-  S cpu core_max core_avg mem mem_psi rx tx disk  n_cores c0 c1 ...   (every 1 s)
-      cpu/core/mem are 0..100 %, mem_psi = PSI some avg10 %, rx/tx/disk in bytes/s
+  S cpu mem mem_used_mib mem_total_mib mem_psi rx tx disk gpu gsrc ping  n_cores c0 c1 ...
+      (every 1 s)  cpu/mem/gpu/cores 0..100 %, mem_psi = PSI some avg10 %,
+      rx/tx/disk in bytes/s (all non-loopback, non-virtual interfaces / whole disks),
+      gpu = busy % of the source gsrc: d = NVIDIA dGPU (nvidia-smi, queried only
+      while the PCI device is runtime-active, so a sleeping dGPU is never woken),
+      i = iGPU (/sys/class/drm/card*/device/gpu_busy_percent), s = asleep (gpu -1).
+      ping = TCP connect (SYN -> SYN/ACK) time to PING_HOST:PING_PORT in ms,
+      probed every PING_EVERY s; -1 = failed (offline), -2 = no probe yet.
   H state rms_db peak_hz  v0..v(NB-1)  p0..p(NB-1)
       state: A = active audio, Q = stream open but quiet, X = no playback stream
       v/p   : band level / peak hold, integers 0..99
@@ -19,8 +25,10 @@ import math
 import os
 import select
 import signal
+import socket
 import subprocess
 import sys
+import threading
 import time
 
 RATE = 22050
@@ -32,6 +40,10 @@ SILENT_DB = -62.0         # below this RMS the signal counts as silent
 IDLE_EVERY = 0.5          # seconds between frames when quiet / no stream
 STATS_EVERY = 1.0
 STATS_EVERY_PAUSED = 5.0
+GPU_EVERY = 2.0           # nvidia-smi is a process spawn: every other stats line
+PING_EVERY = 8.0          # one TCP handshake to a public anycast resolver
+PING_HOST, PING_PORT = "1.1.1.1", 443
+PING_TIMEOUT = 2.0
 
 libc = None
 try:
@@ -130,13 +142,14 @@ def read_mem():
     tot = info.get("MemTotal", 1)
     avail = info.get("MemAvailable", tot)
     used = 100.0 * (1.0 - avail / tot)
+    used_mib = (tot - avail) / 1024.0
     psi = 0.0
     try:
         with open("/proc/pressure/memory") as f:
             psi = float(f.readline().split()[1].split("=")[1])
     except (OSError, IndexError, ValueError):
         pass
-    return used, psi
+    return used, used_mib, tot / 1024.0, psi
 
 
 def rate(key, value, now):
@@ -179,19 +192,109 @@ def read_disk(now):
     return rate("disk", sectors * 512, now)
 
 
+# ------------------------------------------------------------------ probes (worker thread)
+# GPU busy % and internet latency are blocking probes (process spawn / TCP
+# handshake), so they run in a thread; the stats line reports the latest result.
+probe = {"gpu": -1.0, "gsrc": "s", "ping": -2.0}
+probe_live = threading.Event()   # set = HUD visible (probes allowed)
+
+
+def _gpu_devices():
+    nv, other = [], []
+    base = "/sys/bus/pci/devices"
+    try:
+        names = os.listdir(base)
+    except OSError:
+        return nv, other
+    for n in names:
+        d = os.path.join(base, n)
+        try:
+            with open(d + "/class") as f:
+                if not f.read().startswith("0x03"):
+                    continue
+            with open(d + "/vendor") as f:
+                vendor = f.read().strip()
+        except OSError:
+            continue
+        (nv if vendor == "0x10de" else other).append(d)
+    return nv, other
+
+
+def _awake(dev):
+    try:
+        with open(dev + "/power/runtime_status") as f:
+            return f.read().strip() == "active"
+    except OSError:
+        return True   # no runtime PM: always powered
+
+
+def read_gpu():
+    nv, other = _gpu_devices()
+    # NVIDIA dGPU: only ask nvidia-smi while the device is already awake
+    for d in nv:
+        if not _awake(d):
+            continue
+        try:
+            r = subprocess.run(
+                ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=2)
+            vals = [float(v) for v in r.stdout.split() if v.replace(".", "", 1).isdigit()]
+            if vals:
+                return max(vals), "d"
+        except Exception:
+            pass
+    # iGPU (amdgpu / others exposing gpu_busy_percent)
+    for d in other:
+        if not _awake(d):
+            continue
+        try:
+            with open(d + "/gpu_busy_percent") as f:
+                return float(f.read().strip()), "i"
+        except (OSError, ValueError):
+            continue
+    return -1.0, "s"
+
+
+def read_ping():
+    t0 = time.monotonic()
+    try:
+        s = socket.create_connection((PING_HOST, PING_PORT), timeout=PING_TIMEOUT)
+    except OSError:
+        return -1.0
+    dt = (time.monotonic() - t0) * 1000.0
+    try:
+        s.close()
+    except OSError:
+        pass
+    return dt
+
+
+def probe_worker():
+    next_gpu = next_ping = 0.0
+    while True:
+        probe_live.wait()
+        now = time.monotonic()
+        if now >= next_gpu:
+            probe["gpu"], probe["gsrc"] = read_gpu()
+            next_gpu = time.monotonic() + GPU_EVERY
+        if now >= next_ping:
+            probe["ping"] = read_ping()
+            next_ping = time.monotonic() + PING_EVERY
+        time.sleep(max(0.05, min(next_gpu, next_ping) - time.monotonic()))
+
+
 def stats_line():
     now = time.monotonic()
     cpu = read_cpu()
-    mem, psi = read_mem()
+    mem, mem_mib, tot_mib, psi = read_mem()
     rx, tx = read_net(now)
     disk = read_disk(now)
     if not cpu:
         return None
     cores = cpu[1:]
-    cmax = max(cores) if cores else cpu[0]
-    cavg = sum(cores) / len(cores) if cores else cpu[0]
-    return "S %.1f %.1f %.1f %.1f %.2f %d %d %d %d %s" % (
-        cpu[0], cmax, cavg, mem, psi, rx, tx, disk, len(cores),
+    return "S %.1f %.1f %d %d %.2f %d %d %d %.0f %s %.1f %d %s" % (
+        cpu[0], mem, mem_mib, tot_mib, psi, rx, tx, disk,
+        probe["gpu"], probe["gsrc"], probe["ping"], len(cores),
         " ".join("%d" % round(c) for c in cores))
 
 
@@ -385,6 +488,8 @@ def main():
             os.set_blocking(stdin_fd, False)
         except OSError:
             stdin_fd = None
+    probe_live.set()
+    threading.Thread(target=probe_worker, daemon=True).start()
     stats_line()  # prime the deltas
     next_stats = time.monotonic() + STATS_EVERY
     while True:
@@ -448,6 +553,7 @@ def main():
                     stdin_fd = None   # HUD closed stdin: keep running unpaused
                     if paused:
                         paused = False
+                        probe_live.set()
                         recount_at = time.monotonic()
                     continue
                 stdin_buf += chunk
@@ -457,8 +563,10 @@ def main():
                     c = c.strip()
                     if c == b"P" and not paused:
                         paused = True
+                        probe_live.clear()
                     elif c == b"R" and paused:
                         paused = False
+                        probe_live.set()
                         recount_at = time.monotonic()
                         next_stats = min(next_stats, time.monotonic())
                 continue

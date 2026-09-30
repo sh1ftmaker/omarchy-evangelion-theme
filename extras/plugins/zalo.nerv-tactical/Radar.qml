@@ -1,11 +1,12 @@
 import QtQuick
 
-// TACTICAL / 使徒接近 — top-down radar of live TCP contacts.
-// Bearing = hash(remote address), range = RTT (log scale), echo size = log(bytes).
-// The busiest remote host is the Angel (PATTERN BLUE); the rest are orange UN blips
-// that light as the beam passes. The static scope is painted once; the sweep is a
-// pre-rendered phosphor wedge that is only rotated (vsync, time-based); contacts are
-// persistent delegates keyed by ip that glide to new ranges.
+// TACTICAL / 使徒接近 — top-down radar of nearby Wi-Fi networks.
+// Bearing = hash(BSSID), range = signal strength (strong = near the centre), echo size and
+// brightness = signal; diamonds are secured networks, circles open ones. The associated
+// network is the Angel (PATTERN BLUE); the rest are orange blips that light as the beam
+// passes. The static scope is painted once; the sweep is a pre-rendered phosphor wedge that
+// is only rotated (vsync, time-based); contacts are persistent delegates keyed by BSSID that
+// glide to new ranges.
 Item {
   id: radar
 
@@ -22,7 +23,7 @@ Item {
   readonly property real cx: Math.round(width / 2)
   readonly property real cy: Math.round((areaTop + areaBottom) / 2)
   readonly property real rs: Math.max(40, Math.floor(Math.min(width / 2 - 34, (areaBottom - areaTop) / 2) - 26))   // scope radius
-  readonly property var ringsMs: [5, 20, 60, 200]
+  readonly property var ringsDbm: [-50, -60, -70, -80]
   readonly property color cOrange: "#FF7A00"
   readonly property color cAmber: "#FFB000"
   readonly property color cCyan: "#00C8FF"
@@ -30,10 +31,19 @@ Item {
   readonly property color cBone: "#FFE9C8"
   readonly property color cInk: "#050403"
 
-  function rn(rtt) {
-    var v = Math.log(1 + Math.max(0, rtt)) / Math.log(1 + 400)
-    return 0.07 + 0.9 * Math.max(0, Math.min(1, v))
+  // signal quality (NetworkManager %, 0..100) -> normalised range (a gamma spreads the strong
+  // end, where most real networks sit); dBm rings use NM's own dBm -> % mapping
+  function rn(sig) { return 0.07 + 0.9 * Math.pow(1 - Math.max(0, Math.min(100, sig)) / 100, 0.6) }
+  readonly property int labelTop: 10      // only the strongest N blips carry a callsign
+  function dbmPct(d) { return radar.hud.dbmPct(d) }
+  function mmss(s) { var m = Math.floor(s / 60), r = s % 60; return (m < 10 ? "0" : "") + m + ":" + (r < 10 ? "0" : "") + r }
+  function ago(s) {
+    if (s < 0) return "SCAN PENDING"
+    if (s < 60) return "SCAN " + s + "S AGO"
+    if (s < 5400) return "SCAN " + Math.floor(s / 60) + "M AGO"
+    return "SCAN " + Math.floor(s / 3600) + "H AGO"
   }
+  function netName(s) { return s ? s.toUpperCase() : "〈HIDDEN〉" }
   function fmtRate(bps) {
     if (bps >= 1048576) return (bps / 1048576).toFixed(1) + " MB/S"
     if (bps >= 1024) return (bps / 1024).toFixed(1) + " KB/S"
@@ -83,9 +93,9 @@ Item {
         c.fillStyle = "rgba(255,122,0,0.07)"
         for (var gx = C % 12; gx < 2 * C; gx += 12) c.fillRect(Math.round(gx), 0, 1, 2 * C)
         for (var gy = C % 12; gy < 2 * C; gy += 12) c.fillRect(0, Math.round(gy), 2 * C, 1)
-        // inner zone (LAN, < 5 ms) hatched
+        // inner zone (excellent signal, > -50 dBm) hatched
         c.fillStyle = "rgba(255,122,0,0.05)"
-        c.beginPath(); c.arc(C, C, R * radar.rn(radar.ringsMs[0]), 0, TAU); c.fill()
+        c.beginPath(); c.arc(C, C, R * radar.rn(radar.dbmPct(radar.ringsDbm[0])), 0, TAU); c.fill()
         c.restore()
         // radials
         for (var i = 0; i < 12; i++) {
@@ -97,9 +107,9 @@ Item {
           c.lineTo(C + Math.sin(b) * R, C - Math.cos(b) * R)
           c.stroke()
         }
-        // range rings (RTT)
-        for (var k = 0; k < radar.ringsMs.length; k++) {
-          var rr = R * radar.rn(radar.ringsMs[k])
+        // range rings (signal, dBm)
+        for (var k = 0; k < radar.ringsDbm.length; k++) {
+          var rr = R * radar.rn(radar.dbmPct(radar.ringsDbm[k]))
           c.strokeStyle = k === 1 ? "rgba(255,122,0,0.55)" : "rgba(255,122,0,0.34)"
           c.lineWidth = 1
           if (k === 1) c.setLineDash ? c.setLineDash([3, 3]) : 0
@@ -135,9 +145,9 @@ Item {
         // ring labels along bearing 348°
         c.font = "bold 6px 'IBM Plex Mono'"; c.fillStyle = "rgba(255,176,0,0.8)"; c.textAlign = "left"
         var lb = -14 * Math.PI / 180
-        for (var q = 0; q < radar.ringsMs.length; q++) {
-          var r2 = R * radar.rn(radar.ringsMs[q])
-          c.fillText(radar.ringsMs[q] + (q === radar.ringsMs.length - 1 ? "MS" : ""), C + Math.sin(lb) * r2 + 2, C - Math.cos(lb) * r2 + 5)
+        for (var q = 0; q < radar.ringsDbm.length; q++) {
+          var r2 = R * radar.rn(radar.dbmPct(radar.ringsDbm[q]))
+          c.fillText(radar.ringsDbm[q] + (q === radar.ringsDbm.length - 1 ? "DBM" : ""), C + Math.sin(lb) * r2 + 2, C - Math.cos(lb) * r2 + 5)
         }
         // NERV HQ marker
         c.strokeStyle = "#FFB000"; c.lineWidth = 1.2
@@ -154,16 +164,16 @@ Item {
     }
 
     // ---------------------------------------------------------------- corner readouts
-    // top-left: contact count
+    // top-left: networks detected
     Column {
       x: 9; y: 21; spacing: 2
       Row {
         spacing: 4
-        Mono { text: "CONTACTS"; font.pixelSize: 7 }
+        Mono { text: "NETWORKS"; font.pixelSize: 7 }
         Jp { text: "探知目標"; font.pixelSize: 7 }
       }
-      SevenSeg { text: radar.pad3(radar.hud.total); digitHeight: 17; color: radar.cAmber }
-      Mono { text: "HOSTS " + radar.hud.hosts + "  TCP/EST"; font.pixelSize: 7; opacity: 0.8 }
+      SevenSeg { text: radar.pad3(radar.hud.netCount); digitHeight: 17; color: radar.cAmber }
+      Mono { text: "SSID " + radar.hud.ssidCount + "  OPEN " + radar.hud.openCount; font.pixelSize: 7; opacity: 0.8 }
     }
 
 
@@ -174,7 +184,8 @@ Item {
       Mono { text: (radar.hud.iface || "OFFLINE").toUpperCase(); color: radar.cAmber; font.pixelSize: 8; font.weight: Font.Bold }
       Mono {
         width: 90; elide: Text.ElideRight
-        text: radar.hud.ssid ? "SSID " + radar.hud.ssid : "WIRED"
+        text: radar.hud.angel ? radar.hud.angel.band + " CH" + radar.hud.angel.ch + " " + radar.hud.angel.sec
+            : radar.hud.wifiDev ? "WIFI IDLE" : "NO WIFI"
         font.pixelSize: 7; opacity: 0.85
       }
     }
@@ -232,7 +243,7 @@ Item {
   Item {
     id: angelLine
     readonly property var a: radar.hud.angel
-    property real len: a ? Math.max(0, radar.rn(a.rtt) * radar.rs - 12) : 0
+    property real len: a ? Math.max(0, radar.rn(a.sig) * radar.rs - 12) : 0
     Behavior on len { enabled: radar.hud.animating; NumberAnimation { duration: 900; easing.type: Easing.OutCubic } }
     Behavior on rotation { enabled: radar.hud.animating; RotationAnimation { duration: 450; direction: RotationAnimation.Shortest; easing.type: Easing.OutCubic } }
     visible: a !== null
@@ -294,20 +305,25 @@ Item {
     model: radar.hud.contacts
     delegate: Item {
       id: blip
-      required property string ip
-      required property string port
+      required property string nid
+      required property string ssid
+      required property string sec
+      required property string band
+      required property int ch
+      required property real sig
       required property real brg
-      required property real rtt
-      required property real bytes
       required property bool alive
-      readonly property bool angel: radar.hud.angel !== null && radar.hud.angel.ip === ip
+      required property int rank
+      readonly property bool labelled: rank < radar.labelTop
+      readonly property bool angel: radar.hud.angel !== null && radar.hud.angel.id === nid
       readonly property real b: brg * Math.PI / 180
-      // range + echo size glide to each new sample (Behaviors run only while animating)
-      property real r: radar.rn(rtt) * radar.rs
-      property real sz: 3 + 4 * Math.min(1, Math.log(1 + bytes) / Math.log(1e8))
-      Behavior on r { enabled: radar.hud.animating; NumberAnimation { duration: 1200; easing.type: Easing.InOutCubic } }
-      Behavior on sz { enabled: radar.hud.animating; NumberAnimation { duration: 800; easing.type: Easing.OutCubic } }
-      readonly property bool local: /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|127\.|::1$|fe80|fd)/.test(ip)
+      // range + echo size + brightness glide to each new sample (Behaviors run only while animating)
+      property real q: Math.max(0, Math.min(1, sig / 100))
+      Behavior on q { enabled: radar.hud.animating; NumberAnimation { duration: 1200; easing.type: Easing.InOutCubic } }
+      readonly property real r: radar.rn(q * 100) * radar.rs
+      readonly property real sz: 2.4 + 4.6 * q
+      // open networks are round echoes, secured ones diamonds
+      readonly property bool local: sec === "OPEN"
       // fade in on first contact, fade out when lost
       property real presence: alive ? 1 : 0
       Behavior on presence { enabled: radar.hud.animating; NumberAnimation { duration: 700 } }
@@ -326,29 +342,40 @@ Item {
         radius: blip.local ? width / 2 : 0
         color: Qt.rgba(1, 0.48, 0, 0.12)
         border.color: radar.cOrange; border.width: 1
-        opacity: 0.4 * blip.presence
+        opacity: (0.22 + 0.3 * blip.q) * blip.presence
       }
       // beam-lit echo + callsign (gated by the shader)
       Item {
         parent: litItems
         visible: !blip.angel
         x: blip.px; y: blip.py
-        opacity: blip.presence
+        opacity: (0.45 + 0.55 * blip.q) * blip.presence
         Rectangle {
           x: -width / 2; y: -height / 2
           width: blip.side; height: width
           rotation: blip.local ? 0 : 45
           radius: blip.local ? width / 2 : 0
-          color: Qt.rgba(1, 0.68, 0, 0.87)
+          color: blip.local ? Qt.rgba(1, 0.1, 0.1, 0.8) : Qt.rgba(1, 0.68, 0, 0.87)
           border.color: radar.cBone; border.width: 1
         }
-        Mono {
+        Column {
+          visible: blip.labelled
           x: blip.brg < 180 ? 6 : -width - 6
-          y: -12
-          text: "UN-" + (Math.round(blip.brg * 7) % 97 + 1) + " :" + blip.port
-          font.pixelSize: 7
-          font.letterSpacing: 0.6
-          color: radar.cAmber
+          y: blip.ssid ? -15 : -9
+          spacing: 0
+          Mono {
+            visible: blip.ssid !== ""
+            anchors.right: blip.brg < 180 ? undefined : parent.right
+            text: { var n = radar.netName(blip.ssid); return n.length > 13 ? n.slice(0, 12) + "…" : n }
+            font.pixelSize: 7; font.letterSpacing: 0.6
+            color: radar.cAmber
+          }
+          Mono {
+            anchors.right: blip.brg < 180 ? undefined : parent.right
+            text: blip.sec + " " + blip.band + "/" + blip.ch
+            font.pixelSize: 6; font.letterSpacing: 0.4
+            color: blip.local ? radar.cRed : radar.cOrange
+          }
         }
       }
       // beam-strike halo (gated by the shader, fades fast)
@@ -425,12 +452,20 @@ Item {
               Rectangle { x: index % 2 ? -1 : 0; y: index < 2 ? 0 : -5; width: 1; height: 5; color: radar.cCyan }
             }
           }
-          Text {
+          Column {
             x: blip.brg < 180 ? -width - 12 : 12
-            y: -16
-            text: "使徒"
-            color: radar.cCyan
-            font.family: "Noto Sans CJK JP"; font.weight: Font.Black; font.pixelSize: 9
+            y: -18
+            Text {
+              anchors.right: blip.brg < 180 ? parent.right : undefined
+              text: "使徒"
+              color: radar.cCyan
+              font.family: "Noto Sans CJK JP"; font.weight: Font.Black; font.pixelSize: 9
+            }
+            Mono {
+              anchors.right: blip.brg < 180 ? parent.right : undefined
+              text: { var n = radar.netName(blip.ssid); return n.length > 13 ? n.slice(0, 12) + "…" : n }
+              color: radar.cCyan; font.pixelSize: 7; font.weight: Font.Bold; font.letterSpacing: 0.6
+            }
           }
         }
       }
@@ -464,12 +499,13 @@ Item {
     x: radar.width - 9 - 92; y: targetBox.y - 58; width: 92; spacing: 1
     Row { anchors.right: parent.right; spacing: 4; Jp { text: "掃引"; font.pixelSize: 7 } Mono { text: "SWEEP"; font.pixelSize: 7 } }
     Mono { anchors.right: parent.right; text: radar.brgText(radar.hud.sweepReadout) + "°"; color: radar.cAmber; font.pixelSize: 8; font.weight: Font.Bold }
-    Mono { anchors.right: parent.right; text: "1 REV/BAR 133 BPM"; font.pixelSize: 7; opacity: 0.85 }
-    Mono { anchors.right: parent.right; text: "RANGE = RTT (LOG)"; font.pixelSize: 7; opacity: 0.6 }
+    Mono { anchors.right: parent.right; text: radar.ago(radar.hud.scanAge); font.pixelSize: 7; opacity: 0.85 }
+    Mono { anchors.right: parent.right; text: radar.hud.scanNext >= 0 ? "NEXT SCAN " + radar.mmss(radar.hud.scanNext) : "NEXT SCAN --:--"; font.pixelSize: 7; opacity: 0.85 }
+    Mono { anchors.right: parent.right; text: "RANGE = SIGNAL"; font.pixelSize: 7; opacity: 0.6 }
   }
 
-  // targetBox carries the eased Angel rate, so it has its own layer (not the big static one)
-  // ---------------------------------------------------------------- the Angel's analysis box
+  // targetBox carries the eased link quality + RX/TX, so it has its own layer (not the big static one)
+  // ---------------------------------------------------------------- the associated network
   NervPanel {
     id: targetBox
     layer.enabled: true
@@ -477,8 +513,8 @@ Item {
     x: 8; y: radar.height - 66; width: radar.width - 16; height: 58
     accent: a ? radar.cCyan : "#9C6A2E"
     fill: Qt.rgba(0, 0.03, 0.05, 0.78)
-    title: a ? "PATTERN BLUE" : "NO CONTACT"
-    jp: a ? "目標 使徒" : "目標なし"
+    title: a ? "PATTERN BLUE" : "NO LINK"
+    jp: a ? "目標 接続中" : "未接続"
     cut: 9
     header: 13
     alarm: a !== null && radar.hud.angelHot && radar.hud.blinkOn
@@ -490,39 +526,45 @@ Item {
       Item {
         width: parent.width; height: 11
         Mono {
-          width: parent.width - 110; elide: Text.ElideRight
-          text: targetBox.a ? targetBox.a.ip + " :" + targetBox.a.port : ""
+          width: parent.width - 120; elide: Text.ElideRight
+          text: targetBox.a ? radar.netName(targetBox.a.ssid) + "  [" + (targetBox.a.sec || "?") + "]" : ""
           color: radar.cCyan; font.pixelSize: 9; font.weight: Font.Bold; font.letterSpacing: 0.6
         }
         Mono {
           anchors.right: parent.right
-          text: "BLOOD TYPE: BLUE"
-          color: radar.cCyan; font.pixelSize: 8; font.weight: Font.Bold
-          opacity: radar.hud.blinkOn ? 1 : 0.55
+          text: targetBox.a ? (targetBox.a.dbm !== undefined ? targetBox.a.dbm + " DBM  " : "") + Math.round(radar.hud.angelSigS) + "%" : ""
+          color: "#E8FAFF"; font.pixelSize: 8; font.weight: Font.Bold
+          opacity: radar.hud.angelHot && !radar.hud.blinkOn ? 0.55 : 1
         }
       }
       Item {
         width: parent.width; height: 10
         Mono {
-          text: targetBox.a ? "BRG " + radar.brgText(targetBox.a.brg) + "  RTT " + targetBox.a.rtt.toFixed(1) + "MS  LINKS " + targetBox.a.n : ""
-          color: radar.cCyan; font.pixelSize: 7; opacity: 0.9; font.letterSpacing: 0.8
+          text: {
+            var a = targetBox.a
+            if (!a) return ""
+            var s = a.band + " CH" + a.ch + (a.freq ? " " + a.freq + "MHZ" : "")
+            if (a.rxBit !== undefined) s += "  LINK " + Math.round(a.rxBit) + "/" + Math.round(a.txBit || 0) + "M"
+            return s
+          }
+          color: radar.cCyan; font.pixelSize: 7; opacity: 0.9; font.letterSpacing: 0.6
         }
         Mono {
           anchors.right: parent.right
-          text: targetBox.a ? radar.fmtRate(radar.hud.angelRateS) : ""
-          color: "#E8FAFF"; font.pixelSize: 8; font.weight: Font.Bold
+          text: "↓" + radar.fmtRate(radar.hud.rxS) + " ↑" + radar.fmtRate(radar.hud.txS)
+          color: "#E8FAFF"; font.pixelSize: 7; font.weight: Font.Bold; font.letterSpacing: 0.4
         }
       }
       SegMeter {
         width: parent.width; height: 4; segments: 40
-        value: targetBox.a ? Math.log(1 + radar.hud.angelRateS) / Math.log(1 + 5e6) : 0
-        color: radar.cCyan; hot: radar.cRed; hotFrom: 0.8
+        value: radar.hud.angelSigS / 100
+        color: radar.cCyan; hot: radar.cCyan; hotFrom: 2
         dim: Qt.rgba(0, 0.78, 1, 0.12)
       }
     }
     Mono {
       visible: targetBox.a === null
-      text: "ALL QUIET  //  AWAITING CONTACT  解析中"
+      text: radar.hud.wifiDev ? "NOT ASSOCIATED  //  AWAITING LINK  解析中" : "NO WIRELESS INTERFACE  //  解析中"
       color: "#9C6A2E"; font.pixelSize: 8
     }
   }

@@ -7,7 +7,8 @@ import QtQuick.Shapes
 // the target rect / aim line / hairs / carets glide on eased target coords, the search sweep is
 // a pre-painted wedge that only rotates, the Ramiel glyph (a 22 px canvas) spins every frame.
 // The zoom brackets keep their hard stepped snap (steps clocked on whole frames).
-// Right: target dossier, time on target (7-seg), positron charge, field count, corrections.
+// Right: target dossier, time on target (7-seg), positron charge, field count, target telemetry
+// (the target's process tree), firing solution (bearing / px offset / area vs its monitor).
 Item {
   id: t
 
@@ -48,8 +49,12 @@ Item {
   readonly property real tdx: tx - cx
   readonly property real tdy: ty - cy
   readonly property real azimuth: ((Math.atan2(tdx, -tdy) * 180 / Math.PI) + 360) % 360
-  readonly property real elevation: -tdy / fh * 2 * 30
-  readonly property real rangePx: Math.hypot((tnx + tnw / 2 - 0.5) * 1280, (tny + tnh / 2 - 0.5) * 800)
+  // offset of the window centre from its monitor's centre, logical px (screen axes, +y down)
+  readonly property real offX: (tnx + tnw / 2 - 0.5) * hud.monW
+  readonly property real offY: (tny + tnh / 2 - 0.5) * hud.monH
+  readonly property real rangePx: Math.hypot(offX, offY)
+  // share of the monitor's area the window covers
+  readonly property real areaPct: Math.min(1, tnw * tnh) * 100
 
   // state
   readonly property bool has: hud.hasTarget
@@ -68,11 +73,21 @@ Item {
     if (kb >= 1048576) return (kb / 1048576).toFixed(2) + "G"
     return (kb / 1024).toFixed(1) + "M"
   }
+  // compact byte rate: 3 significant-ish chars + unit ("512B", "40K", "1.2M", "15M")
   function fmtRate(bps) {
-    if (bps >= 1048576) return (bps / 1048576).toFixed(1) + "M/S"
-    if (bps >= 1024) return (bps / 1024).toFixed(1) + "K/S"
-    return Math.round(bps) + "B/S"
+    if (bps < 0) return "--"
+    var u = ["B", "K", "M", "G"], i = 0
+    while (bps >= 1000 && i < 3) { bps /= 1024; i++ }
+    return (i > 0 && bps < 10 ? bps.toFixed(1) : String(Math.round(bps))) + u[i]
   }
+  // duration: HH:MM:SS, "NND HHh" past 100 h
+  function fmtDur(sec) {
+    if (sec < 0) return "--:--:--"
+    var s = Math.floor(sec)
+    if (s >= 360000) return Math.floor(s / 86400) + "D " + pad(Math.floor(s / 3600) % 24, 2) + "H"
+    return pad(Math.floor(s / 3600), 2) + ":" + pad(Math.floor(s / 60) % 60, 2) + ":" + pad(s % 60, 2)
+  }
+  function signed(v) { return (v >= 0 ? "+" : "-") + Math.round(Math.abs(v)) }
   function hex(seed, n) {
     var s = "", h = (seed * 374761393 + 668265263) >>> 0
     for (var i = 0; i < n; i++) {
@@ -481,7 +496,7 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         font.pixelSize: 6; opacity: 0.75
         color: strip.inv ? t.cInk : strip.sc
-        text: strip.mode === 0 ? "FIELD CLEAR" : strip.mode === 1 ? "SIGNAL 0" : "RNG " + (t.rangePx / 100).toFixed(2) + "KM"
+        text: strip.mode === 0 ? "FIELD CLEAR" : strip.mode === 1 ? "SIGNAL 0" : "OFS " + t.signed(t.offX) + "," + t.signed(t.offY) + " PX"
       }
     }
   
@@ -588,25 +603,38 @@ Item {
       }
       Rectangle { y: 137; width: parent.width; height: 1; color: t.cOrange; opacity: 0.4 }
   
-      // --- ballistic corrections (fun units, real sources)
-      Mono { y: 140; text: "CORRECTION"; font.pixelSize: 6; opacity: 0.7 }
-      Jp { x: 52; y: 139; text: "弾道補正"; font.pixelSize: 6; opacity: 0.7 }
+      // --- target telemetry: the target's process tree (real /proc values, see Target.qml)
+      readonly property bool tmOk: t.has && !t.lost && t.hud.tmProcs > 0
+      Mono { y: 140; text: "TARGET TELEMETRY"; font.pixelSize: 6; opacity: 0.7 }
+      Jp { x: 80; y: 139; text: "目標解析"; font.pixelSize: 6; opacity: 0.7 }
+      Mono {
+        anchors.right: parent.right; y: 140
+        text: col.tmOk ? (t.hud.tmProcs > 1 ? "TREE ×" + t.hud.tmProcs : "1 PROC") : "NO DATA"
+        font.pixelSize: 6; opacity: 0.55; font.letterSpacing: 0.6
+      }
       Column {
         y: 149
         width: parent.width
         spacing: 1
         Repeater {
+          // [label, jp, value, sub, alarm]
           model: [
-            ["WIND", "風速", t.hud.load[0].toFixed(2) + " M/S", "LOAD " + t.hud.load[1].toFixed(2), t.hud.load[0] > 12],
-            ["GRAVITY", "重力", (9.80665 + t.hud.memPct * 0.001 + t.hud.memPsi * 0.01).toFixed(3) + " G", "MEM " + Math.round(t.hud.memPct) + "%" , t.hud.memPsi > 10],
-            ["GEOMAG", "地磁気", (25 + 8 * Math.log(1 + t.hud.netRate / 1024)).toFixed(1) + " μT", "NET " + t.fmtRate(t.hud.netRate), false]
+            ["DISK", "入出力",
+             col.tmOk && t.hud.tmRead >= 0 ? "R " + t.fmtRate(t.hud.tmRead) + "/S  W " + t.fmtRate(t.hud.tmWrite) + "/S" : "R --/S  W --/S",
+             "", col.tmOk && t.hud.tmRead + t.hud.tmWrite > 100 * 1048576],
+            ["CPU", "演算",
+             col.tmOk && t.hud.tmCpu >= 0 ? t.hud.tmCpu.toFixed(1) + "%" : "--.-%",
+             "TIME " + (col.tmOk ? t.fmtDur(t.hud.tmCpuTime) : "--:--:--"), col.tmOk && t.hud.tmCpu > 100],
+            ["AGE", "稼働",
+             col.tmOk ? t.fmtDur(t.hud.tmAge) : "--:--:--",
+             col.tmOk ? "THR " + t.hud.tmThreads + "  FD " + t.hud.tmFds : "THR --  FD --", false]
           ]
           delegate: Item {
             required property var modelData
             width: col.width; height: 10
             Mono { text: modelData[0]; font.pixelSize: 7; opacity: 0.8; color: modelData[4] ? t.cRed : t.cOrange }
-            Jp { x: 40; y: -1; text: modelData[1]; font.pixelSize: 6; opacity: 0.6 }
-            Mono { x: 62; text: modelData[2]; font.pixelSize: 7; font.weight: Font.Bold; color: modelData[4] ? t.cRed : t.cAmber }
+            Jp { x: 24; y: -1; text: modelData[1]; font.pixelSize: 6; opacity: 0.6 }
+            Mono { x: 46; text: modelData[2]; font.pixelSize: 7; font.weight: Font.Bold; font.letterSpacing: 0.6; color: modelData[4] ? t.cRed : t.cAmber }
             Mono { anchors.right: parent.right; y: 1; text: modelData[3]; font.pixelSize: 5; opacity: 0.55; font.letterSpacing: 0.6 }
           }
         }
@@ -619,9 +647,10 @@ Item {
         width: parent.width; height: 9
         Mono { text: "AZ"; font.pixelSize: 6; opacity: 0.6 }
         Mono { x: 12; text: t.has ? t.pad(t.azimuth, 3) + "." + Math.floor((t.azimuth * 10) % 10) + "°" : "---.-°"; font.pixelSize: 7; font.weight: Font.Bold; color: t.tcol }
-        Mono { x: 52; text: "EL"; font.pixelSize: 6; opacity: 0.6 }
-        Mono { x: 64; text: t.has ? (t.elevation >= 0 ? "+" : "-") + Math.abs(t.elevation).toFixed(1) + "°" : "--.-°"; font.pixelSize: 7; font.weight: Font.Bold; color: t.tcol }
-        Mono { anchors.right: parent.right; text: t.has ? "RNG " + Math.round(t.rangePx) : "RNG ---"; font.pixelSize: 7; font.weight: Font.Bold; color: t.tcol }
+        Mono { x: 50; text: "RNG"; font.pixelSize: 6; opacity: 0.6 }
+        Mono { x: 66; text: t.has ? Math.round(t.rangePx) + "PX" : "---PX"; font.pixelSize: 7; font.weight: Font.Bold; color: t.tcol }
+        Mono { anchors.right: parent.right; anchors.rightMargin: areaV.implicitWidth + 3; text: "AREA"; font.pixelSize: 6; opacity: 0.6 }
+        Mono { id: areaV; anchors.right: parent.right; text: t.has ? Math.round(t.areaPct) + "%" : "--%"; font.pixelSize: 7; font.weight: Font.Bold; color: t.tcol }
       }
       Mono {
         y: 206

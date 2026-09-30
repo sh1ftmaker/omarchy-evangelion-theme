@@ -4,7 +4,7 @@
   "name": "NERV Tactical HUD",
   "version": "1.0.0",
   "author": "zalo",
-  "description": "Evangelion/NERV desktop HUD: a live TCP-contact radar (使徒接近) and a NERV status wall drawn on the desktop layer, behind windows (rect from ~/.config/omarchy/nerv-wall.json).",
+  "description": "Evangelion/NERV desktop HUD: a radar of nearby Wi-Fi networks (使徒接近; connected network = PATTERN BLUE) and a NERV status wall drawn on the desktop layer, behind windows (rect from ~/.config/omarchy/nerv-wall.json).",
   "kinds": ["panel"],
   "keepLoaded": true,
   "entryPoints": {

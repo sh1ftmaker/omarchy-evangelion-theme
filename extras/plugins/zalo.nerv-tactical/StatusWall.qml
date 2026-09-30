@@ -3,7 +3,8 @@ import QtQuick
 // The NERV status wall: a 3-row grid of mini instruments under the radar.
 //   row 1  STORAGE 記憶装置 (segmented disk meters)   | THERMAL 温度 (temps, red warnings)
 //   row 2  UPTIME 稼働時間 (7-segment) + power         | MAGI 演算 (cpu/mem + hex filler)
-//   row 3  LOCAL TIME 現地時刻: TOKYO-3 title card, 7-seg clock, hazard band, system ticker
+//   row 3  LOCAL TIME 現地時刻: city title card (from the system timezone), 7-seg clock, hazard
+//          band, system ticker
 Item {
   id: wall
 
@@ -160,57 +161,74 @@ Item {
     NervPanel {
       id: clock
       x: 0; y: 214; width: wall.width; height: 140
-      title: "LOCAL TIME"; jp: "第3新東京市 現地時刻"
+      title: "LOCAL TIME"; jp: wall.hud.demo ? "第3新東京市 現地時刻" : "現地時刻"
       fill: wall.fill
 
-      // TOKYO-3 title card (condensed serif)
+      // city title card (condensed serif), auto-fit: squeeze harder, then shrink, for long names
+      readonly property var zt: wall.hud.zoneNow        // zone wall time, read with getUTC*()
       Item {
-        width: 150; height: 52
+        id: cardBox
+        width: 112; height: 52
+        TextMetrics {
+          id: cardM
+          text: wall.hud.tzCity
+          font.family: "Cormorant Garamond"; font.weight: Font.DemiBold; font.pixelSize: 44
+        }
+        // fit = available / natural width at the house 60 % squeeze
+        readonly property real fit: Math.min(1, width / Math.max(1, cardM.advanceWidth * 0.6))
+        readonly property real px: 44 * Math.max(0.5, Math.sqrt(fit))
         Text {
           id: card
-          text: "TOKYO-3"
+          text: wall.hud.tzCity
           color: wall.cBone
           font.family: "Cormorant Garamond"
           font.weight: Font.DemiBold
-          font.pixelSize: 44
+          font.pixelSize: cardBox.px
           style: Text.Outline; styleColor: wall.cBone
-          transform: Scale { xScale: 0.6; yScale: 1 }
-          y: -8
+          transform: Scale { xScale: Math.min(0.6, cardBox.width / Math.max(1, card.implicitWidth)); yScale: 1 }
+          y: 32 - cardBox.px * 0.91
         }
-        Text {
-          x: 2; y: 36
-          text: "第3新東京市"
-          color: wall.cOrange
-          font.family: "Noto Serif CJK JP"; font.weight: Font.Black; font.pixelSize: 11
+        Row {
+          x: 2; y: 36; spacing: 5
+          Text {
+            text: wall.hud.demo ? "第3新東京市" : "現地時刻"
+            color: wall.cOrange
+            font.family: "Noto Serif CJK JP"; font.weight: Font.Black; font.pixelSize: 11
+          }
+          Mono {
+            y: 3
+            text: wall.hud.demo ? "JAPAN" : wall.hud.tzRegion
+            font.pixelSize: 7; opacity: 0.75
+          }
         }
       }
       Column {
         x: 118; y: 2; spacing: 3
         SevenSeg {
-          text: wall.two(wall.hud.now.getHours()) + ":" + wall.two(wall.hud.now.getMinutes()) + ":" + wall.two(wall.hud.now.getSeconds())
+          text: wall.two(clock.zt.getUTCHours()) + ":" + wall.two(clock.zt.getUTCMinutes()) + ":" + wall.two(clock.zt.getUTCSeconds())
           digitHeight: 30; color: wall.cAmber
         }
         Row {
           spacing: 6
-          Mono { text: "TOKYO-3 LOCAL TIME"; font.pixelSize: 7; opacity: 0.85 }
-          Mono { text: wall.hud.tzName; font.pixelSize: 7; opacity: 0.55 }
+          Mono { text: (wall.hud.tzAbbr || "LOCAL") + " " + wall.hud.tzOffText; font.pixelSize: 7; opacity: 0.85 }
+          Mono { text: "LOCAL TIME"; font.pixelSize: 7; opacity: 0.55 }
         }
       }
       Column {
         anchors.right: parent.right; y: 2; spacing: 1
         Mono {
           anchors.right: parent.right
-          text: Qt.formatDate(wall.hud.now, "yyyy.MM.dd")
+          text: clock.zt.getUTCFullYear() + "." + wall.two(clock.zt.getUTCMonth() + 1) + "." + wall.two(clock.zt.getUTCDate())
           font.pixelSize: 8; font.weight: Font.Bold; color: wall.cAmber
         }
         Jp {
           anchors.right: parent.right
-          text: ["日", "月", "火", "水", "木", "金", "土"][wall.hud.now.getDay()] + "曜日"
+          text: ["日", "月", "火", "水", "木", "金", "土"][clock.zt.getUTCDay()] + "曜日"
           font.pixelSize: 8
         }
         Mono {
           anchors.right: parent.right
-          text: Qt.formatDate(wall.hud.now, "ddd").toUpperCase()
+          text: ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"][clock.zt.getUTCDay()]
           font.pixelSize: 7; opacity: 0.7
         }
       }

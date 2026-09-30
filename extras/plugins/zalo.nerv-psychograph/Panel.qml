@@ -11,7 +11,7 @@ import "Pal.js" as Pal
 // ~/.config/omarchy/nerv-wall.json (watched: edit + save re-packs live).
 //
 // While every screen's active workspace has windows the HUD is covered: the
-// helper is told to pause (audio capture + FFT stop, stats drop to one line / 5 s),
+// helper is told to pause (audio capture + FFT + GPU/ping probes stop, stats drop to one line / 5 s),
 // the vsync FrameAnimations of both scopes stop and nothing repaints.
 //
 // Hide / show:  omarchy-shell shell toggle zalo.nerv-psychograph '{}'
@@ -95,7 +95,7 @@ Item {
   readonly property bool live: opened && desktopVisible
 
   // ---------------------------------------------------------------- helper
-  // /proc stats every 1 s + audio spectrum (only while playback exists).
+  // /proc stats every 1 s, GPU busy every 2 s, TCP ping every 8 s + audio spectrum (only while playback exists).
   // stdin: "P" pauses (no audio capture/FFT, stats every 5 s), "R" resumes.
   Process {
     id: helper

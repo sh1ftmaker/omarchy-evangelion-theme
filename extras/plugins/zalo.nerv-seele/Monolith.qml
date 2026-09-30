@@ -1,8 +1,8 @@
 import QtQuick
 
-// One SEELE member: a tall black slab seen in shallow perspective (outer edge nearer, so taller),
-// red member number, SOUND ONLY, the process name running up the face, and a segmented voice
-// meter. `level` (0..1) drives the red text, the edge glow and the meter.
+// One process slot as a SEELE monolith: a tall black slab seen in shallow perspective (outer edge
+// nearer, so taller), red slot number, the PID, the process name running up the face (the
+// biggest label; long names shrink to fit before eliding), and a segmented CPU meter. `level` (0..1) drives the red text, the edge glow and the meter.
 //
 // Smooth motion without repaints: every Canvas here is painted once per size (glow, slab,
 // speaker slab, outline, lit meter, brackets) and all motion is GPU-side: `ls` eases toward each
@@ -48,10 +48,11 @@ Item {
 
   // seat change: fade the old name out, swap, fade the new one in
   property string shownName: name
+  property int shownPid: pid
   property bool shownLive: live
   property real nameA: 1
   onPidChanged: {
-    if (!m.animate) { shownName = name; shownLive = live; nameA = 1; return }
+    if (!m.animate) { shownName = name; shownPid = pid; shownLive = live; nameA = 1; return }
     swap.restart()
   }
   onNameChanged: if (!swap.running) shownName = name
@@ -59,7 +60,7 @@ Item {
   SequentialAnimation {
     id: swap
     NumberAnimation { target: m; property: "nameA"; to: 0; duration: 300; easing.type: Easing.InQuad }
-    ScriptAction { script: { m.shownName = m.name; m.shownLive = m.live } }
+    ScriptAction { script: { m.shownName = m.name; m.shownPid = m.pid; m.shownLive = m.live } }
     NumberAnimation { target: m; property: "nameA"; to: 1; duration: 450; easing.type: Easing.OutQuad }
   }
 
@@ -224,53 +225,60 @@ Item {
     transform: Scale { origin.x: num.width / 2; xScale: 0.78 }
   }
 
-  Column {
-    anchors.horizontalCenter: parent.horizontalCenter
+  // PID (where SEELE's "SOUND ONLY" sat); cross-fades with the name on a slot change
+  Text {
+    id: pidTxt
+    x: 0.5; width: m.width - 1
     y: m.height * 0.27 + 1
-    spacing: -1
-    opacity: m.ink * 0.9 + (1 - m.ink * 0.9) * m.sp
-    Repeater {
-      model: ["SOUND", "ONLY"]
-      Text {
-        anchors.horizontalCenter: parent.horizontalCenter
-        text: modelData
-        color: "#FF1A1A"
-        font.family: "IBM Plex Mono"
-        font.weight: Font.Bold
-        font.pixelSize: 5
-        font.letterSpacing: 0.2
-      }
-    }
+    horizontalAlignment: Text.AlignHCenter
+    text: m.shownLive ? String(m.shownPid) : "----"
+    color: "#FF1A1A"
+    opacity: (m.ink * 0.9 + (1 - m.ink * 0.9) * m.sp) * m.nameA
+    fontSizeMode: Text.HorizontalFit
+    minimumPixelSize: 3
+    font.family: "IBM Plex Mono"
+    font.weight: Font.Bold
+    font.pixelSize: 5
+    font.letterSpacing: 0
   }
 
-  // process name, running up the face beside the meter (red, cross-faded to bone for the speaker)
+  // process name, running up the face beside the meter from the foot to just under the PID
+  // (red, brightening with CPU; cross-faded to bone for the top process)
   Item {
     id: nmBox
-    readonly property real run: m.height * 0.56
+    readonly property real run: m.height * 0.73 - 14 - Math.abs(m.taper)
     width: run
-    height: nmRed.implicitHeight
+    height: 8
     x: m.width - 3 - height / 2 - run / 2
     y: m.height - 5 - Math.abs(m.taper) - run / 2 - height / 2
     rotation: -90
     opacity: m.nameA
-    readonly property string label: m.shownLive ? m.shownName.toUpperCase() : "— VACANT —"
+    readonly property string label: m.shownLive ? m.shownName.toUpperCase() : "— EMPTY —"
     Text {
       id: nmRed
       width: parent.width
+      height: 8
+      verticalAlignment: Text.AlignVCenter
       text: nmBox.label
       elide: Text.ElideRight
+      fontSizeMode: Text.HorizontalFit
+      minimumPixelSize: 5
       color: "#FF1A1A"
-      opacity: (0.3 + 0.7 * m.ls) * (1 - m.sp)
+      opacity: (0.5 + 0.5 * m.ls) * (1 - m.sp)
       visible: opacity > 0.001
       font.family: "IBM Plex Mono"
-      font.weight: Font.DemiBold
-      font.pixelSize: 6
-      font.letterSpacing: 0.6
+      font.weight: Font.Bold
+      font.pixelSize: 7
+      font.letterSpacing: 0.4
     }
     Text {
       width: parent.width
+      height: nmRed.height
+      verticalAlignment: nmRed.verticalAlignment
       text: nmBox.label
       elide: Text.ElideRight
+      fontSizeMode: nmRed.fontSizeMode
+      minimumPixelSize: nmRed.minimumPixelSize
       color: "#FFE9C8"
       opacity: 0.95 * m.sp
       visible: opacity > 0.001

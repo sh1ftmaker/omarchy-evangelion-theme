@@ -4,7 +4,7 @@
   "name": "NERV Positron Rifle",
   "version": "1.0.0",
   "author": "zalo",
-  "description": "NERV desktop wall panel: POSITRON RIFLE / 目標捕捉, a targeting scope locked on the focused (or last focused) window, with PID/CPU/RSS readouts, time-on-target and a charge meter.",
+  "description": "NERV desktop wall panel: POSITRON RIFLE / 目標捕捉, a targeting scope locked on the focused (or last focused) window, with PID/CPU/RSS readouts, process-tree telemetry (disk I/O, CPU, age, threads, fds), time-on-target and a charge meter.",
   "kinds": ["panel"],
   "keepLoaded": true,
   "entryPoints": {

@@ -12,7 +12,8 @@ import Quickshell.Hyprland
 //
 // Data: Quickshell.Hyprland (activeToplevel / toplevels / rawEvent) — event-driven; the window
 // geometry is refreshed (hyprctl clients) only on window events. /proc is read every 2 s, and
-// only while the desktop is visible. All animation pauses while windows cover the desktop.
+// only while the desktop is visible: the window's PID directly (dossier), and its whole process
+// tree through telemetry.sh (TARGET TELEMETRY: disk I/O, CPU, age, threads, fds). All animation pauses while windows cover the desktop.
 //
 // Rect: ~/.config/omarchy/nerv-wall.json panels["zalo.nerv-target"] (1280x800 reference grid).
 // Show / hide:  omarchy-shell shell toggle zalo.nerv-target '{}'
@@ -107,8 +108,8 @@ Item {
       if (tgt) tTitle = tgt.title || tTitle
       refreshSoon()
       startSnap()
-      sampleSys()
       sampleProc()
+      sampleTelemetry()
     } else if (phase === 1 || phase === 2) {
       // covered mid-snap: land it now (the frame clock is about to stop)
       br = tn; phase = hasTarget ? 3 : 0
@@ -135,6 +136,8 @@ Item {
   property var tn: [0.4, 0.4, 0.2, 0.2]   // target rect, normalized to its monitor
   property var field: []                  // the other windows on the target's workspace (normalized)
   property real aspect: 1.6
+  property real monW: 1280               // the target's monitor, logical px
+  property real monH: 800
   readonly property int targets: Hyprland.toplevels.values.length
   // what the HUD displays (real values, or demo fakes)
   readonly property string shownClass: demo ? "UNIT-01" : tClass
@@ -194,6 +197,7 @@ Item {
   function recomputeField() {
     var m = monFor(tMonId)
     aspect = m.w / m.h
+    monW = m.w; monH = m.h
     function N(at, sz) { return [(at[0] - m.x) / m.w, (at[1] - m.y) / m.h, sz[0] / m.w, sz[1] / m.h] }
     var n = N([tGeom[0], tGeom[1]], [tGeom[2], tGeom[3]])
     var moved = Math.abs(n[0] - tn[0]) + Math.abs(n[1] - tn[1]) + Math.abs(n[2] - tn[2]) + Math.abs(n[3] - tn[3]) > 0.002
@@ -350,18 +354,10 @@ Item {
   property real rss: -1
   property string comm: ""
   property int threads: 0
-  property var load: [0, 0, 0]
-  property real memPct: 0
-  property real memPsi: 0
-  property real netRate: 0
-  property var netPrev: null
 
+  // the window's own process (dossier PID / THR / CPU / RSS rows)
   FileView { id: fStat; path: root.tPid > 0 ? "/proc/" + root.tPid + "/stat" : ""; blockLoading: true; printErrors: false }
   FileView { id: fStatus; path: root.tPid > 0 ? "/proc/" + root.tPid + "/status" : ""; blockLoading: true; printErrors: false }
-  FileView { id: fLoad; path: "/proc/loadavg"; blockLoading: true; printErrors: false }
-  FileView { id: fMem; path: "/proc/meminfo"; blockLoading: true; printErrors: false }
-  FileView { id: fPsi; path: "/proc/pressure/memory"; blockLoading: true; printErrors: false }
-  FileView { id: fNet; path: "/proc/net/dev"; blockLoading: true; printErrors: false }
 
   function sampleProc() {
     if (tPid <= 0 || lost) return
@@ -380,38 +376,70 @@ Item {
     rss = m ? +m[1] : -1
   }
 
-  function sampleSys() {
-    fLoad.reload()
-    var l = fLoad.text().split(" ")
-    if (l.length >= 3) load = [+l[0], +l[1], +l[2]]
-    fMem.reload()
-    var mt = fMem.text()
-    var tot = /MemTotal:\s+(\d+)/.exec(mt), av = /MemAvailable:\s+(\d+)/.exec(mt)
-    if (tot && av) memPct = (1 - (+av[1]) / (+tot[1])) * 100
-    fPsi.reload()
-    var p = /some avg10=([\d.]+)/.exec(fPsi.text())
-    memPsi = p ? +p[1] : 0
-    fNet.reload()
-    var lines = fNet.text().split("\n"), sum = 0
-    for (var i = 2; i < lines.length; i++) {
-      var ln = lines[i].trim()
-      if (!ln) continue
-      var c = ln.indexOf(":")
-      var name = ln.substring(0, c)
-      if (name === "lo") continue
-      var v = ln.substring(c + 1).trim().split(/\s+/)
-      sum += (+v[0]) + (+v[8])
+  // target telemetry: the target's whole process tree (root = the window's PID), sampled by
+  // telemetry.sh (one gawk pass over /proc/*/stat + /proc/<pid>/io, fd globs). Rates are per-PID
+  // deltas summed over PIDs present in both samples, so children appearing / exiting don't spike.
+  property int tmProcs: 0
+  property int tmThreads: 0
+  property int tmFds: 0
+  property real tmAge: -1                // s since the root process started
+  property real tmCpuTime: -1            // s of CPU consumed by the live tree (utime+stime)
+  property real tmCpu: -1                // % of one core, tree
+  property real tmRead: -1               // B/s actually read from storage (io read_bytes)
+  property real tmWrite: -1              // B/s written to storage (io write_bytes)
+  property var tmPrev: null              // { root, t, per: { pid: [rb, wb, ticks] } }
+
+  function resetTelemetry() {
+    tmProcs = 0; tmThreads = 0; tmFds = 0; tmAge = -1; tmCpuTime = -1
+    tmCpu = -1; tmRead = -1; tmWrite = -1; tmPrev = null
+  }
+  onTPidChanged: resetTelemetry()
+
+  function parseTelemetry(txt, pid, t) {
+    if (pid !== tPid) return
+    var lines = txt.split("\n"), up = -1, per = {}, n = 0, thr = 0, fds = 0, ticks = 0, age = -1
+    var prev = tmPrev && tmPrev.root === pid ? tmPrev : null
+    var dr = 0, dw = 0, dt = 0
+    for (var i = 0; i < lines.length; i++) {
+      var f = lines[i].split(" ")
+      if (f[0] === "T") up = +f[1]
+      else if (f[0] === "P" && f.length >= 8) {
+        var rb = +f[2], wb = +f[3], tk = +f[4]
+        per[f[1]] = [rb, wb, tk]
+        n++; thr += +f[5]; fds += +f[7]; ticks += tk
+        if (n === 1 && up >= 0) age = up - (+f[6]) / 100
+        var o = prev ? prev.per[f[1]] : null
+        if (o) { dr += Math.max(0, rb - o[0]); dw += Math.max(0, wb - o[1]); dt += Math.max(0, tk - o[2]) }
+      }
     }
-    var t = Date.now()
-    if (netPrev && t > netPrev.t) netRate = Math.max(0, (sum - netPrev.b) / ((t - netPrev.t) / 1000))
-    netPrev = { b: sum, t: t }
+    if (n === 0) { resetTelemetry(); return }
+    tmProcs = n; tmThreads = thr; tmFds = fds; tmAge = age; tmCpuTime = ticks / 100
+    if (prev && t > prev.t) {
+      var secs = (t - prev.t) / 1000
+      tmRead = dr / secs; tmWrite = dw / secs; tmCpu = dt / 100 / secs * 100
+    }
+    tmPrev = { root: pid, t: t, per: per }
+  }
+
+  Process {
+    id: teleProc
+    property int pid: 0
+    property real t0: 0
+    command: [Qt.resolvedUrl("telemetry.sh").toString().replace("file://", ""), String(pid)]
+    stdout: StdioCollector { onStreamFinished: root.parseTelemetry(text, teleProc.pid, teleProc.t0) }
+  }
+  function sampleTelemetry() {
+    if (tPid <= 0 || lost || teleProc.running) return
+    teleProc.pid = tPid
+    teleProc.t0 = Date.now()
+    teleProc.running = true
   }
 
   Timer {
     interval: 2000
     repeat: true
     running: root.live
-    onTriggered: { root.sampleSys(); root.sampleProc() }
+    onTriggered: { root.sampleProc(); root.sampleTelemetry() }
   }
 
   // ------------------------------------------------------------------ face (window-free content)

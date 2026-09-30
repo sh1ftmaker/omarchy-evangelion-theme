@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""SEELE council feed for zalo.nerv-seele (no deps).
+"""Process-monitor feed for zalo.nerv-seele (PROCESSES / プロセス監視; no deps).
 
 Every tick (2 s while the desktop is visible, 5 s otherwise; the shell writes
 "active"/"idle" lines on stdin) it reads /proc/[pid]/stat for every process,
 computes the *current* CPU% (per-core, like top) from jiffy deltas, smooths it,
-and seats the 12 hungriest processes on the council. Seats are sticky: a member
-keeps its seat until it exits or a challenger clearly out-consumes the weakest
-member, so the monoliths never shuffle on small fluctuations. One JSON line per
-tick on stdout.
+and puts the 12 hungriest processes into 12 slots. Slots are sticky: a process
+keeps its slot until it exits or a challenger clearly out-consumes the weakest
+one, so the monoliths never shuffle on small fluctuations. The LOG lines are
+plain language ("firefox EXITED · slot 03 free", "slot 03 → code"). One JSON
+line per tick on stdout.
 """
 import json
 import os
@@ -72,7 +73,7 @@ def scan():
 
 
 def tag(i):
-    return "[%02d]" % (i + 1)
+    return "slot %02d" % (i + 1)
 
 
 def tick():
@@ -88,6 +89,10 @@ def tick():
             machine = 100.0 * (1 - (idl - prev_total[1]) / dtot)
     prev_total = (tot, idl)
     prev_t = now
+    with open("/proc/uptime") as f:
+        up = float(f.read().split()[0])
+    # "STARTED" in the log = the process is under 15 s old when it takes a slot
+    fresh = lambda p: up - procs[p][1] / TCK < 15
     cur = {}
     threads = 0
     for pid, (ticks, start, comm, rss, thr) in procs.items():
@@ -105,7 +110,8 @@ def tick():
         if pid not in procs:
             prev.pop(pid, None)
             ema.pop(pid, None)
-            names.pop(pid, None)
+            if pid not in seats:  # seated names are kept for the EXITED note
+                names.pop(pid, None)
     for pid, v in procs.items():
         prev[pid] = (v[0], v[1])
     if not dt:
@@ -114,7 +120,7 @@ def tick():
     # ---- seating
     for i, pid in enumerate(seats):
         if pid is not None and pid not in procs:
-            note(tag(i) + " " + names.get(pid, "?").upper() + " 退席 SEAT VACATED")
+            note(names.pop(pid, "?") + " EXITED · " + tag(i) + " free")
             seats[i] = None
             hist.pop(pid, None)
     seated = set(p for p in seats if p is not None)
@@ -126,7 +132,8 @@ def tick():
             seats[i] = cands[ci]
             ci += 1
             if not first:
-                note(tag(i) + " " + names[seats[i]].upper() + " 着席 SEATED")
+                c = seats[i]
+                note(names[c] + " STARTED → " + tag(i) if fresh(c) else tag(i) + " → " + names[c])
     for _ in range(3):  # at most 3 replacements per tick
         if ci >= len(cands):
             break
@@ -137,7 +144,8 @@ def tick():
             old = seats[weak]
             hist.pop(old, None)
             seats[weak] = c
-            note(tag(weak) + " " + names[old].upper() + " → " + names[c].upper() + " 交代")
+            note((names[c] + " STARTED → " + tag(weak) + ", was " if fresh(c) else tag(weak) + ": ") + names[old]
+                 + ("" if fresh(c) else " → " + names[c]))
             ci += 1
         else:
             break
@@ -147,14 +155,14 @@ def tick():
         h.append(round(cur.get(pid, 0.0), 1))
         del h[:-HIST]
 
-    # ---- the speaker (hysteresis so the floor isn't passed back and forth)
+    # ---- the top process (hysteresis so the top slot isn't passed back and forth)
     best = max(range(SEATS), key=lambda i: ema.get(seats[i], 0.0))
     if speaker < 0 or seats[speaker] is None:
         speaker = best
-        note(tag(speaker) + " " + names[seats[speaker]].upper() + " 発言中 HAS THE FLOOR")
+        note("TOP CPU → " + names[seats[speaker]])
     elif best != speaker and ema[seats[best]] > ema[seats[speaker]] * 1.3 + 0.8:
         speaker = best
-        note(tag(speaker) + " " + names[seats[speaker]].upper() + " 発言中 HAS THE FLOOR")
+        note("TOP CPU → " + names[seats[speaker]])
 
     out = []
     for pid in seats:
